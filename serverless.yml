@@ -47,6 +47,34 @@ functions:
     environment:
       S3_BUCKET_NAME: ${self:custom.bucketName}
 
+  searchPlots:
+    handler: src/handlers/plot_discovery.search_plots
+    events:
+      - http:
+          path: plots/search
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+            allowCredentials: false
+    environment:
+      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
+      
+  registerPlot:
+    handler: src/handlers/plot_discovery.register_plot
+    events:
+      - http:
+          path: plots/register
+          method: post
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+            allowCredentials: false
+    environment:
+      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
+
 resources:
   Resources:
     # S3 bucket for storing plot JSON files
