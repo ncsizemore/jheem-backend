@@ -53,7 +53,8 @@ def search_plots(event, context):
             region_name='us-east-1'
         )
         
-        table = dynamodb.Table('jheem-plot-metadata')
+        table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
+        table = dynamodb.Table(table_name)
         
         # Query DynamoDB by partition key
         partition_key = f"{city}#{scenario}"
@@ -190,7 +191,8 @@ def register_plot(event, context):
             region_name='us-east-1'
         )
         
-        table = dynamodb.Table('jheem-plot-metadata')
+        table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
+        table = dynamodb.Table(table_name)
         
         # Prepare item for insertion
         city_scenario = f"{body['city']}#{body['scenario']}"

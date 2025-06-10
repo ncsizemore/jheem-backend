@@ -29,8 +29,9 @@ custom:
     edgePort: 4566
     autostart: false  # We'll start LocalStack manually
   
-  # Bucket name (will be created in LocalStack)
+  # Resource names
   bucketName: prerun-plots-bucket-${self:provider.stage}
+  tableName: jheem-plot-metadata-${self:provider.stage}
 
 functions:
   getPrerunPlot:
@@ -60,6 +61,7 @@ functions:
             allowCredentials: false
     environment:
       DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
+      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
       
   registerPlot:
     handler: src/handlers/plot_discovery.register_plot
@@ -74,6 +76,7 @@ functions:
             allowCredentials: false
     environment:
       DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
+      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
 
 resources:
   Resources:
@@ -82,3 +85,20 @@ resources:
       Type: AWS::S3::Bucket
       Properties:
         BucketName: ${self:custom.bucketName}
+    
+    # DynamoDB table for plot metadata
+    PlotMetadataTable:
+      Type: AWS::DynamoDB::Table
+      Properties:
+        TableName: ${self:custom.tableName}
+        AttributeDefinitions:
+          - AttributeName: city_scenario
+            AttributeType: S
+          - AttributeName: outcome_stat_facet
+            AttributeType: S
+        KeySchema:
+          - AttributeName: city_scenario
+            KeyType: HASH
+          - AttributeName: outcome_stat_facet
+            KeyType: RANGE
+        BillingMode: PAY_PER_REQUEST
