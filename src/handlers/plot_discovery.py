@@ -256,3 +256,84 @@ def register_plot(event, context):
                 'error': f'Internal server error: {str(e)}'
             })
         }
+
+
+def get_all_available_cities(event, context):
+    """
+    Lambda handler to get all cities that have plot data available
+    Returns cities with their available scenarios in a single API call
+    
+    Response format:
+    {
+        "cities": {
+            "C.12580": ["cessation", "brief_interruption"],
+            "C.12940": ["cessation"]
+        },
+        "total_cities": 2
+    }
+    """
+    
+    try:
+        # Initialize DynamoDB client
+        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL', 'http://localhost:4566')
+        
+        dynamodb = boto3.resource(
+            'dynamodb',
+            endpoint_url=dynamodb_endpoint,
+            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
+            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
+            region_name='us-east-1'
+        )
+        
+        table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
+        table = dynamodb.Table(table_name)
+        
+        # Single scan to get all city_scenario combinations
+        response = table.scan(
+            ProjectionExpression='city_scenario'
+        )
+        
+        # Process data to group by city
+        city_data = {}
+        for item in response['Items']:
+            city_scenario = item['city_scenario']
+            if '#' in city_scenario:
+                city, scenario = city_scenario.split('#', 1)
+                
+                if city not in city_data:
+                    city_data[city] = []
+                
+                if scenario not in city_data[city]:
+                    city_data[city].append(scenario)
+        
+        # Sort scenarios for consistency
+        for city in city_data:
+            city_data[city].sort()
+        
+        return {
+            'statusCode': 200,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS'
+            },
+            'body': json.dumps({
+                'cities': city_data,
+                'total_cities': len(city_data)
+            }, default=decimal_default)
+        }
+        
+    except Exception as e:
+        return {
+            'statusCode': 500,
+            'headers': {
+                'Content-Type': 'application/json',
+                'Access-Control-Allow-Origin': '*',
+                'Access-Control-Allow-Headers': 'Content-Type',
+                'Access-Control-Allow-Methods': 'GET, OPTIONS'
+            },
+            'body': json.dumps({
+                'error': f'Failed to get available cities: {str(e)}'
+            })
+        }

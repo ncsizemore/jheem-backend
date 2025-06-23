@@ -27,3 +27,15 @@ Thumbs.db
 
 # Logs
 *.log
+
+# Orchestration Results (too large/personal for git)
+orchestration_results_*.json
+results/
+
+# Generated orchestration configs (can be regenerated)
+orchestration_configs/job_*.yaml
+orchestration_configs/master_config_*.yaml
+
+# Local development artifacts
+plots/
+lib/

@@ -11,7 +11,7 @@ def test_discovery_api():
     
     # Assuming your API Gateway ID is still qn20ihefoo
     # You might need to update this if it changed
-    base_url = "http://localhost:4566/restapis/qn20ihefoo/local/_user_request_"
+    base_url = "http://localhost:4566/restapis/ogavekpfi5/local/_user_request_"
     
     print("🧪 Testing JHEEM Discovery API")
     print("=" * 50)

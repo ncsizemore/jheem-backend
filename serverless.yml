@@ -78,6 +78,21 @@ functions:
       DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
       DYNAMODB_TABLE_NAME: ${self:custom.tableName}
 
+  getAllCities:
+    handler: src/handlers/plot_discovery.get_all_available_cities
+    events:
+      - http:
+          path: plots/cities
+          method: get
+          cors:
+            origin: '*'
+            headers:
+              - Content-Type
+            allowCredentials: false
+    environment:
+      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
+      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
+
 resources:
   Resources:
     # S3 bucket for storing plot JSON files
