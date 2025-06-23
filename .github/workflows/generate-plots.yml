@@ -1,0 +1,193 @@
+name: Generate JHEEM Plots
+
+on:
+  workflow_dispatch:
+    inputs:
+      config_type:
+        description: 'Configuration type'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+        - test
+        - medium
+        - full
+      max_parallel:
+        description: 'Maximum parallel jobs'
+        required: true
+        default: '4'
+        type: string
+      
+jobs:
+  # First job: Generate configuration and prepare simulation data
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      cities: ${{ steps.config.outputs.cities }}
+      total_plots: ${{ steps.config.outputs.total_plots }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup Python
+        uses: actions/setup-python@v4
+        with:
+          python-version: '3.9'
+          
+      - name: Install Python dependencies
+        run: |
+          pip install pyyaml argparse
+          
+      - name: Generate orchestration configuration
+        id: config
+        run: |
+          cd scripts
+          python generate_orchestration_config.py --type ${{ github.event.inputs.config_type }}
+          
+          # Extract cities list for matrix strategy
+          python -c "
+          import yaml
+          with open('../orchestration_configs/master_config_${{ github.event.inputs.config_type }}.yaml', 'r') as f:
+              config = yaml.safe_load(f)
+          cities = [job['city'] for job in config['jobs']]
+          total_plots = config['total_expected_plots']
+          print(f'cities={cities}'.replace(\"'\", '\"'))
+          print(f'total_plots={total_plots}')
+          " >> $GITHUB_OUTPUT
+          
+      - name: Upload configuration artifacts
+        uses: actions/upload-artifact@v3
+        with:
+          name: orchestration-config
+          path: orchestration_configs/
+
+  # Second job: Generate plots per city (matrix strategy)
+  generate-plots:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        city: ${{ fromJson(needs.prepare.outputs.cities) }}
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel) }}
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+        
+      - name: Setup R
+        uses: r-lib/actions/setup-r@v2
+        with:
+          r-version: '4.3.0'
+          
+      - name: Install system dependencies
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev
+          
+      - name: Install R packages
+        run: |
+          R -e "install.packages(c('devtools', 'plotly', 'argparse', 'yaml', 'ggplot2', 'htmlwidgets', 'jsonlite', 'httr'))"
+          R -e "devtools::install_github('tfojo1/jheem2')"
+          R -e "devtools::install_github('tfojo1/locations')"
+          
+      - name: Download simulation data (MOCK)
+        run: |
+          # TODO: Replace with actual simulation data download
+          echo "📦 MOCK: Downloading simulation data for ${{ matrix.city }}"
+          echo "📦 In production, this will download:"
+          echo "   - base-simulations-${{ matrix.city }}.zip (~50MB)"
+          echo "   - prerun-simulations-${{ matrix.city }}.zip (~60MB)"
+          
+          # Create mock directory structure
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.city }}
+          echo "Mock simulation data" > simulations/ryan-white/base/${{ matrix.city }}_base.Rdata
+          echo "Mock scenario data" > simulations/ryan-white/prerun/${{ matrix.city }}/cessation.Rdata
+          
+      - name: Download configuration
+        uses: actions/download-artifact@v3
+        with:
+          name: orchestration-config
+          path: orchestration_configs/
+          
+      - name: Setup R working directory (MOCK)
+        run: |
+          # TODO: Copy actual R scripts and dependencies
+          echo "📋 MOCK: Setting up R environment"
+          echo "📋 In production, this will copy:"
+          echo "   - batch_plot_generator.R"
+          echo "   - Required utility scripts"
+          echo "   - Configuration files"
+          
+          # Create mock R script for testing
+          cat > mock_plot_generator.R << 'EOF'
+          #!/usr/bin/env Rscript
+          cat("🚀 Mock plot generation for city:", commandArgs(TRUE)[2], "\n")
+          
+          # Parse arguments (simplified)
+          args <- commandArgs(TRUE)
+          city_idx <- which(args == "--city")
+          city <- if(length(city_idx) > 0) args[city_idx + 1] else "unknown"
+          
+          # Mock plot generation
+          plots_generated <- 150  # Medium config: 150 plots per city
+          
+          for(i in 1:plots_generated) {
+            cat(sprintf("[%d/%d] Generated mock plot %d for %s\n", i, plots_generated, i, city))
+            if(i %% 50 == 0) Sys.sleep(1)  # Simulate some processing time
+          }
+          
+          # Mock S3 upload
+          cat("📤 MOCK S3 Upload: Would upload", plots_generated, "plots to s3://jheem-plots-production/plots/\n")
+          
+          # Mock database registration  
+          cat("📋 MOCK Database: Would register", plots_generated, "plots in DynamoDB\n")
+          
+          cat("✅ Mock generation complete for", city, "\n")
+          EOF
+          
+      - name: Generate plots for city
+        env:
+          # Mock environment variables (will be real AWS credentials in production)
+          AWS_ACCESS_KEY_ID: "mock-access-key"
+          AWS_SECRET_ACCESS_KEY: "mock-secret-key"
+          API_GATEWAY_URL: "https://api.jheem.org"
+        run: |
+          echo "🏙️ Generating plots for city: ${{ matrix.city }}"
+          
+          # TODO: Replace with actual R script execution
+          Rscript mock_plot_generator.R \
+            --city ${{ matrix.city }} \
+            --scenarios cessation,brief_interruption,prolonged_interruption \
+            --outcomes incidence,diagnosed.prevalence,suppression,prep.uptake \
+            --statistics mean.and.interval,median.and.interval \
+            --facets none,sex,age,race,sex+age \
+            --json-only \
+            --upload-s3 \
+            --register-db
+            
+      - name: Report completion
+        run: |
+          echo "✅ City ${{ matrix.city }} completed successfully"
+          echo "📊 Generated plots for:"
+          echo "   - 3 scenarios × 5 outcomes × 2 statistics × 5 facets = 150 plots"
+          
+  # Third job: Summarize results
+  summarize:
+    needs: [prepare, generate-plots]
+    runs-on: ubuntu-latest
+    if: always()
+    steps:
+      - name: Generate summary
+        run: |
+          echo "🎯 JHEEM Plot Generation Summary"
+          echo "================================"
+          echo "Configuration: ${{ github.event.inputs.config_type }}"
+          echo "Total expected plots: ${{ needs.prepare.outputs.total_plots }}"
+          echo "Cities processed: ${{ strategy.job-total }}"
+          echo "Parallel jobs: ${{ github.event.inputs.max_parallel }}"
+          echo ""
+          echo "📋 Next steps:"
+          echo "1. Set up production AWS account"
+          echo "2. Package actual simulation data"
+          echo "3. Deploy R scripts to workflow"
+          echo "4. Configure production secrets"
