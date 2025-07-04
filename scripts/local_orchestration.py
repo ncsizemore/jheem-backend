@@ -12,13 +12,14 @@ import threading
 import psutil
 import argparse
 import sys
+import os
 from pathlib import Path
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from datetime import datetime
 
 class LocalOrchestrator:
     def __init__(self, config_file, max_parallel=2, resource_monitoring=True, 
-                 r_script_path=None, working_dir=None):
+                 r_script_path=None, working_dir=None, force_upload=False):
         """
         Initialize the local orchestrator
         
@@ -28,6 +29,7 @@ class LocalOrchestrator:
             resource_monitoring: Enable system resource monitoring
             r_script_path: Path to batch_plot_generator.R script
             working_dir: Working directory for R script execution
+            force_upload: Force upload even if plots exist locally
         """
         self.config_file = Path(config_file)
         if not self.config_file.exists():
@@ -36,6 +38,7 @@ class LocalOrchestrator:
         self.config = yaml.safe_load(self.config_file.read_text())
         self.max_parallel = max_parallel
         self.resource_monitoring = resource_monitoring
+        self.force_upload = force_upload
         self.results = []
         self._stop_monitoring = False
         
@@ -55,12 +58,33 @@ class LocalOrchestrator:
         print(f"   Working Dir: {self.working_dir}")
         print(f"   Max Parallel: {self.max_parallel}")
         
+    def get_api_gateway_id(self):
+        """Get API Gateway ID from environment variable"""
+        api_id = os.environ.get('JHEEM_API_GATEWAY_ID')
+        if not api_id:
+            raise ValueError("JHEEM_API_GATEWAY_ID environment variable is required")
+        return api_id
+    
     def execute_job(self, job):
         """Execute a single batch job"""
         start_time = time.time()
         city = job["city"]
         
         print(f"🏙️  Starting job for city {city}")
+        
+        # Get API Gateway ID from environment
+        try:
+            api_gateway_id = self.get_api_gateway_id()
+        except ValueError as e:
+            return {
+                "job": job,
+                "city": city,
+                "success": False,
+                "duration": time.time() - start_time,
+                "expected_plots": job["expected_plots"],
+                "error": str(e),
+                "return_code": -1
+            }
         
         # Build command arguments
         cmd = [
@@ -73,9 +97,12 @@ class LocalOrchestrator:
             "--facets", ",".join(job["facets"]),
             "--upload-s3",
             "--register-db", 
-            "--api-gateway-id", "ogavekpfi5",
-            "--skip-existing"
+            "--api-gateway-id", api_gateway_id
         ]
+        
+        # Add --skip-existing only if not forcing upload
+        if not self.force_upload:
+            cmd.append("--skip-existing")
         
         try:
             result = subprocess.run(
@@ -278,6 +305,8 @@ def main():
                        help="Path to batch_plot_generator.R script")
     parser.add_argument("--working-dir", 
                        help="Working directory for R script execution")
+    parser.add_argument("--force-upload", action="store_true",
+                       help="Force upload even if plots exist locally (skip --skip-existing flag)")
     
     args = parser.parse_args()
     
@@ -287,7 +316,8 @@ def main():
             max_parallel=args.max_parallel,
             resource_monitoring=not args.no_monitoring,
             r_script_path=args.r_script,
-            working_dir=args.working_dir
+            working_dir=args.working_dir,
+            force_upload=args.force_upload
         )
         
         success = orchestrator.run_orchestration()
