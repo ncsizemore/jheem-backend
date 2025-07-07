@@ -44,10 +44,13 @@ jobs:
           cd scripts
           python generate_orchestration_config.py --type ${{ github.event.inputs.config_type }}
           
+          # Go back to repo root to read the config file
+          cd ..
+          
           # Extract cities list for matrix strategy
           python -c "
           import yaml
-          with open('../orchestration_configs/master_config_${{ github.event.inputs.config_type }}.yaml', 'r') as f:
+          with open('orchestration_configs/master_config_${{ github.event.inputs.config_type }}.yaml', 'r') as f:
               config = yaml.safe_load(f)
           cities = [job['city'] for job in config['jobs']]
           total_plots = config['total_expected_plots']
