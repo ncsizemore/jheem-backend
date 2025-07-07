@@ -15,7 +15,7 @@ on:
       max_parallel:
         description: 'Maximum parallel jobs'
         required: true
-        default: '4'
+        default: '2'
         type: string
       
 jobs:
@@ -73,35 +73,18 @@ jobs:
       - name: Checkout repository
         uses: actions/checkout@v4
         
-      - name: Setup R
-        uses: r-lib/actions/setup-r@v2
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          r-version: '4.3.0'
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
           
-      - name: Install system dependencies
+      - name: Verify AWS connection
         run: |
-          sudo apt-get update
-          sudo apt-get install -y libcurl4-openssl-dev libssl-dev libxml2-dev
-          
-      - name: Install R packages
-        run: |
-          R -e "install.packages(c('devtools', 'plotly', 'argparse', 'yaml', 'ggplot2', 'htmlwidgets', 'jsonlite', 'httr'))"
-          R -e "devtools::install_github('tfojo1/jheem2')"
-          R -e "devtools::install_github('tfojo1/locations')"
-          
-      - name: Download simulation data (MOCK)
-        run: |
-          # TODO: Replace with actual simulation data download
-          echo "📦 MOCK: Downloading simulation data for ${{ matrix.city }}"
-          echo "📦 In production, this will download:"
-          echo "   - base-simulations-${{ matrix.city }}.zip (~50MB)"
-          echo "   - prerun-simulations-${{ matrix.city }}.zip (~60MB)"
-          
-          # Create mock directory structure
-          mkdir -p simulations/ryan-white/base
-          mkdir -p simulations/ryan-white/prerun/${{ matrix.city }}
-          echo "Mock simulation data" > simulations/ryan-white/base/${{ matrix.city }}_base.Rdata
-          echo "Mock scenario data" > simulations/ryan-white/prerun/${{ matrix.city }}/cessation.Rdata
+          echo "🔐 Testing AWS connection..."
+          aws sts get-caller-identity
+          echo "✅ AWS connection successful"
           
       - name: Download configuration
         uses: actions/download-artifact@v3
@@ -109,67 +92,133 @@ jobs:
           name: orchestration-config
           path: orchestration_configs/
           
-      - name: Setup R working directory (MOCK)
+      - name: Generate test plots for city
         run: |
-          # TODO: Copy actual R scripts and dependencies
-          echo "📋 MOCK: Setting up R environment"
-          echo "📋 In production, this will copy:"
-          echo "   - batch_plot_generator.R"
-          echo "   - Required utility scripts"
-          echo "   - Configuration files"
+          echo "🏙️ Generating test plots for city: ${{ matrix.city }}"
           
-          # Create mock R script for testing
-          cat > mock_plot_generator.R << 'EOF'
-          #!/usr/bin/env Rscript
-          cat("🚀 Mock plot generation for city:", commandArgs(TRUE)[2], "\n")
+          # Create test plot data (simulating what R script would generate)
+          mkdir -p plots
           
-          # Parse arguments (simplified)
-          args <- commandArgs(TRUE)
-          city_idx <- which(args == "--city")
-          city <- if(length(city_idx) > 0) args[city_idx + 1] else "unknown"
-          
-          # Mock plot generation
-          plots_generated <- 150  # Medium config: 150 plots per city
-          
-          for(i in 1:plots_generated) {
-            cat(sprintf("[%d/%d] Generated mock plot %d for %s\n", i, plots_generated, i, city))
-            if(i %% 50 == 0) Sys.sleep(1)  # Simulate some processing time
+          # Generate 5 test plots per city (keeping it small for Phase 1)
+          for i in {1..5}; do
+            plot_file="plots/${{ matrix.city }}_test_plot_${i}.json"
+            
+            # Create realistic plot JSON structure
+            cat > "$plot_file" << EOF
+          {
+            "data": [
+              {
+                "x": [2020, 2021, 2022, 2023, 2024, 2025],
+                "y": [100, 95, 88, 82, 76, 70],
+                "type": "scatter",
+                "mode": "lines+markers",
+                "name": "Test Data"
+              }
+            ],
+            "layout": {
+              "title": "Test Plot $i for ${{ matrix.city }}",
+              "xaxis": {"title": "Year"},
+              "yaxis": {"title": "Value"},
+              "showlegend": true
+            },
+            "metadata": {
+              "city": "${{ matrix.city }}",
+              "scenario": "test_scenario",
+              "outcome": "test_outcome_${i}",
+              "statistic": "mean.and.interval",
+              "facet": "none",
+              "generated_by": "github_actions",
+              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+            }
           }
-          
-          # Mock S3 upload
-          cat("📤 MOCK S3 Upload: Would upload", plots_generated, "plots to s3://jheem-plots-production/plots/\n")
-          
-          # Mock database registration  
-          cat("📋 MOCK Database: Would register", plots_generated, "plots in DynamoDB\n")
-          
-          cat("✅ Mock generation complete for", city, "\n")
           EOF
+            
+            echo "📊 Generated test plot: $plot_file"
+          done
           
-      - name: Generate plots for city
-        env:
-          # Mock environment variables (will be real AWS credentials in production)
-          AWS_ACCESS_KEY_ID: "mock-access-key"
-          AWS_SECRET_ACCESS_KEY: "mock-secret-key"
-          API_GATEWAY_URL: "https://api.jheem.org"
+      - name: Upload plots to S3
         run: |
-          echo "🏙️ Generating plots for city: ${{ matrix.city }}"
+          echo "📤 Uploading plots to S3..."
           
-          # TODO: Replace with actual R script execution
-          Rscript mock_plot_generator.R \
-            --city ${{ matrix.city }} \
-            --scenarios cessation,brief_interruption,prolonged_interruption \
-            --outcomes incidence,diagnosed.prevalence,suppression,prep.uptake \
-            --statistics mean.and.interval,median.and.interval \
-            --facets none,sex,age,race,sex+age \
-            --json-only \
-            --upload-s3 \
-            --register-db
+          # Upload each plot file to S3
+          for plot_file in plots/*.json; do
+            if [[ -f "$plot_file" ]]; then
+              filename=$(basename "$plot_file")
+              s3_key="github_actions_test/${{ matrix.city }}/${filename}"
+              
+              echo "📤 Uploading: $plot_file → s3://jheem-test-tiny-bucket/$s3_key"
+              aws s3 cp "$plot_file" "s3://jheem-test-tiny-bucket/$s3_key" \
+                --metadata "city=${{ matrix.city }},source=github_actions,timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                
+              if [[ $? -eq 0 ]]; then
+                echo "✅ Successfully uploaded: $s3_key"
+              else
+                echo "❌ Failed to upload: $s3_key"
+                exit 1
+              fi
+            fi
+          done
+          
+      - name: Register plots in DynamoDB
+        run: |
+          echo "📋 Registering plot metadata in DynamoDB..."
+          
+          # Register each plot in DynamoDB
+          for plot_file in plots/*.json; do
+            if [[ -f "$plot_file" ]]; then
+              filename=$(basename "$plot_file")
+              s3_key="github_actions_test/${{ matrix.city }}/${filename}"
+              file_size=$(stat -c%s "$plot_file" 2>/dev/null || stat -f%z "$plot_file")
+              plot_id="gh_${{ matrix.city }}_$(echo $filename | sed 's/.json$//')"
+              
+              echo "📋 Registering: $plot_id"
+              
+              # Create DynamoDB item
+              aws dynamodb put-item \
+                --table-name jheem-test-tiny \
+                --item "{
+                  \"city\": {\"S\": \"${{ matrix.city }}\"},
+                  \"plot_id\": {\"S\": \"$plot_id\"},
+                  \"scenario\": {\"S\": \"github_actions_test\"},
+                  \"outcome\": {\"S\": \"test_outcome\"},
+                  \"s3_key\": {\"S\": \"$s3_key\"},
+                  \"file_size\": {\"N\": \"$file_size\"},
+                  \"source\": {\"S\": \"github_actions\"},
+                  \"created_at\": {\"S\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}
+                }"
+                
+              if [[ $? -eq 0 ]]; then
+                echo "✅ Successfully registered: $plot_id"
+              else
+                echo "❌ Failed to register: $plot_id"
+                exit 1
+              fi
+            fi
+          done
+          
+      - name: Verify uploads
+        run: |
+          echo "🔍 Verifying uploads..."
+          
+          # List uploaded files in S3
+          echo "📁 S3 files for ${{ matrix.city }}:"
+          aws s3 ls "s3://jheem-test-tiny-bucket/github_actions_test/${{ matrix.city }}/" || echo "No files found"
+          
+          # Query DynamoDB for registered plots
+          echo "📊 DynamoDB records for ${{ matrix.city }}:"
+          aws dynamodb query \
+            --table-name jheem-test-tiny \
+            --key-condition-expression "city = :city" \
+            --expression-attribute-values "{\":city\":{\"S\":\"${{ matrix.city }}\"}}" \
+            --query "Items[?contains(plot_id.S, 'gh_')].[plot_id.S, s3_key.S]" \
+            --output table || echo "No records found"
             
       - name: Report completion
         run: |
           echo "✅ City ${{ matrix.city }} completed successfully"
-          echo "📊 Generated plots for:"
-          echo "   - 3 scenarios × 5 outcomes × 2 statistics × 5 facets = 150 plots"
+          echo "📊 Generated and uploaded 5 test plots"
+          echo "📋 Registered 5 metadata records in DynamoDB"
+          echo "💾 Files stored under: github_actions_test/${{ matrix.city }}/"
           
   # Third job: Summarize results
   summarize:
@@ -177,17 +226,38 @@ jobs:
     runs-on: ubuntu-latest
     if: always()
     steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+          
       - name: Generate summary
         run: |
           echo "🎯 JHEEM Plot Generation Summary"
           echo "================================"
           echo "Configuration: ${{ github.event.inputs.config_type }}"
           echo "Total expected plots: ${{ needs.prepare.outputs.total_plots }}"
-          echo "Cities processed: ${{ strategy.job-total }}"
           echo "Parallel jobs: ${{ github.event.inputs.max_parallel }}"
           echo ""
-          echo "📋 Next steps:"
-          echo "1. Set up production AWS account"
-          echo "2. Package actual simulation data"
-          echo "3. Deploy R scripts to workflow"
-          echo "4. Configure production secrets"
+          echo "📊 AWS Integration Results:"
+          
+          # Count total files uploaded
+          total_files=$(aws s3 ls s3://jheem-test-tiny-bucket/github_actions_test/ --recursive | wc -l || echo "0")
+          echo "   - S3 files uploaded: $total_files"
+          
+          # Count total DynamoDB records
+          total_records=$(aws dynamodb scan \
+            --table-name jheem-test-tiny \
+            --filter-expression "contains(plot_id, :prefix)" \
+            --expression-attribute-values '{":prefix":{"S":"gh_"}}' \
+            --select COUNT \
+            --query "Count" --output text || echo "0")
+          echo "   - DynamoDB records: $total_records"
+          
+          echo ""
+          echo "✅ AWS integration test complete!"
+          echo "🔗 View results in AWS Console:"
+          echo "   - S3: https://console.aws.amazon.com/s3/buckets/jheem-test-tiny-bucket"
+          echo "   - DynamoDB: https://console.aws.amazon.com/dynamodb/"
