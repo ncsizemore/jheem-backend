@@ -41,13 +41,10 @@ jobs:
       - name: Generate orchestration configuration
         id: config
         run: |
-          cd scripts
-          python generate_orchestration_config.py --type ${{ github.event.inputs.config_type }}
+          # Run the script from repo root so paths work correctly
+          python scripts/generate_orchestration_config.py --type ${{ github.event.inputs.config_type }}
           
-          # Go back to repo root to read the config file
-          cd ..
-          
-          # Extract cities list for matrix strategy
+          # Extract cities list for matrix strategy  
           python -c "
           import yaml
           with open('orchestration_configs/master_config_${{ github.event.inputs.config_type }}.yaml', 'r') as f:
