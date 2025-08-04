@@ -85,6 +85,23 @@ def generate_test_subset_config():
         facets=test_facets
     )
 
+def generate_minimal_test_config():
+    """Generate ultra-minimal configuration for initial integration testing (1 plot)"""
+    # Single city, single scenario, single outcome, single statistic, single facet
+    minimal_cities = ["C.12580"]
+    minimal_scenarios = ["cessation"]
+    minimal_outcomes = ["incidence"] 
+    minimal_statistics = ["mean.and.interval"]
+    minimal_facets = ["none"]
+    
+    return generate_city_based_jobs(
+        cities=minimal_cities,
+        scenarios=minimal_scenarios,
+        outcomes=minimal_outcomes,
+        statistics=minimal_statistics,
+        facets=minimal_facets
+    )
+
 def generate_medium_subset_config():
     """Generate a medium-scale configuration for serious testing (~1000 plots)"""
     # Use 6 cities with more outcomes but limited statistics/facets
@@ -104,7 +121,9 @@ def generate_orchestration_config(config_type="test", output_dir="orchestration_
     """Generate complete orchestration configuration"""
     Path(output_dir).mkdir(exist_ok=True)
     
-    if config_type == "test":
+    if config_type == "minimal":
+        jobs = generate_minimal_test_config()
+    elif config_type == "test":
         jobs = generate_test_subset_config()
     elif config_type == "medium":
         jobs = generate_medium_subset_config()
@@ -148,8 +167,8 @@ def generate_orchestration_config(config_type="test", output_dir="orchestration_
 
 if __name__ == "__main__":
     parser = argparse.ArgumentParser(description="Generate orchestration configurations for plot generation")
-    parser.add_argument("--type", choices=["test", "medium", "full"], default="test",
-                       help="Configuration type: test (~100 plots), medium (~1000 plots), full (~64K plots)")
+    parser.add_argument("--type", choices=["minimal", "test", "medium", "full"], default="test",
+                       help="Configuration type: minimal (1 plot), test (~100 plots), medium (~1000 plots), full (~64K plots)")
     parser.add_argument("--output-dir", default="orchestration_configs", 
                        help="Output directory for configuration files")
     

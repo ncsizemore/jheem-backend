@@ -9,6 +9,7 @@ on:
         default: 'test'
         type: choice
         options:
+        - minimal
         - test
         - medium
         - full
@@ -92,63 +93,74 @@ jobs:
           name: orchestration-config
           path: orchestration_configs/
           
-      - name: Generate test plots for city
+      - name: Download simulation data for city
         run: |
-          echo "🏙️ Generating test plots for city: ${{ matrix.city }}"
+          echo "📥 Downloading simulation data for city: ${{ matrix.city }}"
           
-          # Create test plot data (simulating what R script would generate)
+          # Create directories for simulation data
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.city }}
+          
+          # Download base simulation data for this city
+          echo "📥 Downloading base simulation: ${{ matrix.city }}_base.Rdata"
+          aws s3 cp s3://jheem-data-production/simulations/ryan-white/base/${{ matrix.city }}_base.Rdata \
+            simulations/ryan-white/base/${{ matrix.city }}_base.Rdata
+          
+          # Download prerun simulation data for all scenarios in the job config
+          echo "📥 Downloading prerun simulations for ${{ matrix.city }}"
+          aws s3 sync s3://jheem-data-production/simulations/ryan-white/prerun/${{ matrix.city }}/ \
+            simulations/ryan-white/prerun/${{ matrix.city }}/
+          
+          # Verify downloads
+          echo "✅ Base simulation downloaded:"
+          ls -la simulations/ryan-white/base/${{ matrix.city }}_base.Rdata
+          echo "✅ Prerun simulations downloaded:"
+          ls -la simulations/ryan-white/prerun/${{ matrix.city }}/
+
+      - name: Generate real plots using container
+        run: |
+          echo "🏙️ Generating real plots for city: ${{ matrix.city }}"
+          
+          # Create output directory
           mkdir -p plots
           
-          # Generate 5 test plots per city (keeping it small for Phase 1)
-          for i in {1..5}; do
-            plot_file="plots/${{ matrix.city }}_test_plot_${i}.json"
-            
-            # Create realistic plot JSON structure
-            cat > "$plot_file" << EOF
-          {
-            "data": [
-              {
-                "x": [2020, 2021, 2022, 2023, 2024, 2025],
-                "y": [100, 95, 88, 82, 76, 70],
-                "type": "scatter",
-                "mode": "lines+markers",
-                "name": "Test Data"
-              }
-            ],
-            "layout": {
-              "title": "Test Plot $i for ${{ matrix.city }}",
-              "xaxis": {"title": "Year"},
-              "yaxis": {"title": "Value"},
-              "showlegend": true
-            },
-            "metadata": {
-              "city": "${{ matrix.city }}",
-              "scenario": "test_scenario",
-              "outcome": "test_outcome_${i}",
-              "statistic": "mean.and.interval",
-              "facet": "none",
-              "generated_by": "github_actions",
-              "timestamp": "$(date -u +%Y-%m-%dT%H:%M:%SZ)"
-            }
-          }
-          EOF
-            
-            echo "📊 Generated test plot: $plot_file"
-          done
+          # Find the job config file for this city
+          JOB_CONFIG=$(find orchestration_configs -name "job_${{ github.event.inputs.config_type }}_*_${{ matrix.city }}.yaml" | head -1)
+          echo "📋 Using job config: $JOB_CONFIG"
+          
+          # Log in to ECR
+          echo "🔐 Logging in to ECR..."
+          aws ecr get-login-password --region us-east-1 | docker login --username AWS --password-stdin 849611540600.dkr.ecr.us-east-1.amazonaws.com
+          
+          # Generate real plots using container
+          echo "🐳 Running container plot generation..."
+          docker run --rm \
+            -v $(pwd)/simulations:/app/simulations:ro \
+            -v $(pwd)/plots:/app/plots \
+            -v $(pwd)/orchestration_configs:/app/configs:ro \
+            849611540600.dkr.ecr.us-east-1.amazonaws.com/jheem-ryan-white-model:latest batch \
+            --config /app/configs/$(basename "$JOB_CONFIG") \
+            ${{ github.event.inputs.config_type == 'minimal' && '--include-html' || '' }} \
+            --s3-bucket jheem-test-tiny-bucket
+          
+          # Verify plot generation
+          echo "✅ Generated plots:"
+          find plots -name "*.json" -o -name "*.html" | head -10
           
       - name: Upload plots to S3
         run: |
           echo "📤 Uploading plots to S3..."
           
-          # Upload each plot file to S3
-          for plot_file in plots/*.json; do
+          # Upload JSON and HTML files to S3
+          for plot_file in plots/**/*.json plots/**/*.html; do
             if [[ -f "$plot_file" ]]; then
-              filename=$(basename "$plot_file")
-              s3_key="github_actions_test/${{ matrix.city }}/${filename}"
+              # Preserve directory structure in S3 key
+              relative_path=${plot_file#plots/}
+              s3_key="github_actions_integration/${{ matrix.city }}/${relative_path}"
               
               echo "📤 Uploading: $plot_file → s3://jheem-test-tiny-bucket/$s3_key"
               aws s3 cp "$plot_file" "s3://jheem-test-tiny-bucket/$s3_key" \
-                --metadata "city=${{ matrix.city }},source=github_actions,timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
+                --metadata "city=${{ matrix.city }},source=github_actions_container,config_type=${{ github.event.inputs.config_type }},timestamp=$(date -u +%Y-%m-%dT%H:%M:%SZ)"
                 
               if [[ $? -eq 0 ]]; then
                 echo "✅ Successfully uploaded: $s3_key"
@@ -163,27 +175,51 @@ jobs:
         run: |
           echo "📋 Registering plot metadata in DynamoDB..."
           
-          # Register each plot in DynamoDB
-          for plot_file in plots/*.json; do
+          # Register each JSON plot file in DynamoDB (only JSON files, not HTML)
+          for plot_file in plots/**/*.json; do
             if [[ -f "$plot_file" ]]; then
+              # Extract plot information from filename and path
+              relative_path=${plot_file#plots/}
               filename=$(basename "$plot_file")
-              s3_key="github_actions_test/${{ matrix.city }}/${filename}"
+              s3_key="github_actions_integration/${{ matrix.city }}/${relative_path}"
               file_size=$(stat -c%s "$plot_file" 2>/dev/null || stat -f%z "$plot_file")
-              plot_id="gh_${{ matrix.city }}_$(echo $filename | sed 's/.json$//')"
               
-              echo "📋 Registering: $plot_id"
+              # Parse plot details from container-generated filename
+              # Expected format: outcome_statistic_facet.json or outcome_statistic_facet_facetvalue.json
+              base_name=$(echo $filename | sed 's/.json$//')
               
-              # Create DynamoDB item
+              # Extract metadata from the JSON file if it exists
+              if command -v jq &> /dev/null && jq -e '.metadata' "$plot_file" > /dev/null 2>&1; then
+                scenario=$(jq -r '.metadata.scenario // "unknown"' "$plot_file")
+                outcome=$(jq -r '.metadata.outcome // "unknown"' "$plot_file") 
+                statistic=$(jq -r '.metadata.statistic // "unknown"' "$plot_file")
+                facet=$(jq -r '.metadata.facet // "unknown"' "$plot_file")
+              else
+                # Fallback parsing from filename
+                scenario="cessation"  # Default for minimal test
+                outcome=$(echo $base_name | cut -d'_' -f1)
+                statistic="mean.and.interval"
+                facet="none"
+              fi
+              
+              plot_id="container_${{ matrix.city }}_${base_name}"
+              
+              echo "📋 Registering: $plot_id (scenario: $scenario, outcome: $outcome)"
+              
+              # Create DynamoDB item with real plot metadata
               aws dynamodb put-item \
                 --table-name jheem-test-tiny \
                 --item "{
                   \"city\": {\"S\": \"${{ matrix.city }}\"},
                   \"plot_id\": {\"S\": \"$plot_id\"},
-                  \"scenario\": {\"S\": \"github_actions_test\"},
-                  \"outcome\": {\"S\": \"test_outcome\"},
+                  \"scenario\": {\"S\": \"$scenario\"},
+                  \"outcome\": {\"S\": \"$outcome\"},
+                  \"statistic\": {\"S\": \"$statistic\"},
+                  \"facet\": {\"S\": \"$facet\"},
                   \"s3_key\": {\"S\": \"$s3_key\"},
                   \"file_size\": {\"N\": \"$file_size\"},
-                  \"source\": {\"S\": \"github_actions\"},
+                  \"source\": {\"S\": \"github_actions_container\"},
+                  \"config_type\": {\"S\": \"${{ github.event.inputs.config_type }}\"},
                   \"created_at\": {\"S\": \"$(date -u +%Y-%m-%dT%H:%M:%SZ)\"}
                 }"
                 
@@ -202,7 +238,7 @@ jobs:
           
           # List uploaded files in S3
           echo "📁 S3 files for ${{ matrix.city }}:"
-          aws s3 ls "s3://jheem-test-tiny-bucket/github_actions_test/${{ matrix.city }}/" || echo "No files found"
+          aws s3 ls "s3://jheem-test-tiny-bucket/github_actions_integration/${{ matrix.city }}/" --recursive || echo "No files found"
           
           # Query DynamoDB for registered plots
           echo "📊 DynamoDB records for ${{ matrix.city }}:"
@@ -210,15 +246,23 @@ jobs:
             --table-name jheem-test-tiny \
             --key-condition-expression "city = :city" \
             --expression-attribute-values "{\":city\":{\"S\":\"${{ matrix.city }}\"}}" \
-            --query "Items[?contains(plot_id.S, 'gh_')].[plot_id.S, s3_key.S]" \
+            --query "Items[?contains(plot_id.S, 'container_')].[plot_id.S, scenario.S, outcome.S, s3_key.S]" \
             --output table || echo "No records found"
             
       - name: Report completion
         run: |
           echo "✅ City ${{ matrix.city }} completed successfully"
-          echo "📊 Generated and uploaded 5 test plots"
-          echo "📋 Registered 5 metadata records in DynamoDB"
-          echo "💾 Files stored under: github_actions_test/${{ matrix.city }}/"
+          
+          # Count actual generated files
+          json_count=$(find plots -name "*.json" | wc -l)
+          html_count=$(find plots -name "*.html" | wc -l)
+          
+          echo "📊 Real plots generated via container:"
+          echo "   - JSON files: $json_count"
+          echo "   - HTML files: $html_count" 
+          echo "📋 Registered $json_count metadata records in DynamoDB"
+          echo "💾 Files stored under: github_actions_integration/${{ matrix.city }}/"
+          echo "🎯 Config type: ${{ github.event.inputs.config_type }}"
           
   # Third job: Summarize results
   summarize:
