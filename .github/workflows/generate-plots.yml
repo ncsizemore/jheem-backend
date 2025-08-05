@@ -152,7 +152,7 @@ jobs:
           echo "📤 Uploading plots to S3..."
           
           # Upload JSON and HTML files to S3
-          for plot_file in plots/**/*.json plots/**/*.html; do
+          for plot_file in $(find plots -name "*.json" -o -name "*.html"); do
             if [[ -f "$plot_file" ]]; then
               # Preserve directory structure in S3 key
               relative_path=${plot_file#plots/}
@@ -176,7 +176,7 @@ jobs:
           echo "📋 Registering plot metadata in DynamoDB..."
           
           # Register each JSON plot file in DynamoDB (only JSON files, not HTML)
-          for plot_file in plots/**/*.json; do
+          for plot_file in $(find plots -name "*.json"); do
             if [[ -f "$plot_file" ]]; then
               # Extract plot information from filename and path
               relative_path=${plot_file#plots/}
