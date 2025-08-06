@@ -16,6 +16,10 @@ def get_plot(event, context):
         query_params = event.get('queryStringParameters') or {}
         plot_key = query_params.get('plotKey')
         
+        # Fix: Convert metadata file paths to actual plot file paths
+        if plot_key and plot_key.endswith('_metadata.json'):
+            plot_key = plot_key.replace('_metadata.json', '.json')
+        
         if not plot_key:
             return {
                 'statusCode': 400,
@@ -31,16 +35,17 @@ def get_plot(event, context):
             }
         
         # Initialize S3 client
-        s3_endpoint = os.environ.get('S3_ENDPOINT_URL', 'http://localhost:4566')
+        s3_endpoint = os.environ.get('S3_ENDPOINT_URL')
         bucket_name = os.environ.get('S3_BUCKET_NAME', 'prerun-plots-bucket-local')
         
-        s3_client = boto3.client(
-            's3',
-            endpoint_url=s3_endpoint,
-            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
-            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
-            region_name='us-east-1'
-        )
+        # Build client args conditionally
+        client_args = {'region_name': 'us-east-1'}
+        
+        # Only set endpoint_url if it's a valid URL (not empty string)
+        if s3_endpoint and s3_endpoint.strip():
+            client_args['endpoint_url'] = s3_endpoint
+            
+        s3_client = boto3.client('s3', **client_args)
         
         # Retrieve the plot JSON from S3
         try:

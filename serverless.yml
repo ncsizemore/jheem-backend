@@ -1,37 +1,78 @@
+# "org" ensures this Service is used with the correct Serverless Framework Access Key.
+org: jheem
 service: jheem-backend
 
 provider:
   name: aws
   runtime: python3.9
   region: us-east-1
-  stage: ${opt:stage, 'dev'}
+  stage: ${opt:stage, 'local'}
   
   # Environment variables for our Lambda functions
   environment:
-    S3_BUCKET_NAME: ${self:custom.bucketName}
-    S3_ENDPOINT_URL: http://host.docker.internal:4566
-    AWS_ACCESS_KEY_ID: test
-    AWS_SECRET_ACCESS_KEY: test
+    S3_BUCKET_NAME: ${self:custom.stage.bucketName}
+    DYNAMODB_TABLE_NAME: ${self:custom.stage.tableName}
+    S3_ENDPOINT_URL: ${self:custom.stage.s3Endpoint, ''}
+    DYNAMODB_ENDPOINT_URL: ${self:custom.stage.dynamoEndpoint, ''}
   
-  # For LocalStack deployment
-  # Remove the profile line and let serverless-localstack handle credentials
+  # IAM permissions for production resources
+  iam:
+    role:
+      statements:
+        # S3 permissions for jheem-test-tiny-bucket
+        - Effect: Allow
+          Action:
+            - s3:GetObject
+            - s3:PutObject
+            - s3:DeleteObject
+          Resource: 'arn:aws:s3:::jheem-test-tiny-bucket/*'
+        - Effect: Allow
+          Action:
+            - s3:ListBucket
+          Resource: 'arn:aws:s3:::jheem-test-tiny-bucket'
+        # DynamoDB permissions for jheem-test-tiny table
+        - Effect: Allow
+          Action:
+            - dynamodb:Query
+            - dynamodb:Scan
+            - dynamodb:GetItem
+            - dynamodb:PutItem
+            - dynamodb:UpdateItem
+            - dynamodb:DeleteItem
+          Resource: 
+            - 'arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/jheem-test-tiny'
+            - 'arn:aws:dynamodb:${aws:region}:${aws:accountId}:table/jheem-test-tiny/*'
 
 plugins:
   - serverless-localstack
   - serverless-offline
 
 custom:
-  # LocalStack configuration
+  # Stage-specific configurations
+  stages:
+    local:
+      bucketName: prerun-plots-bucket-local
+      tableName: jheem-plot-metadata-local
+      s3Endpoint: http://host.docker.internal:4566
+      dynamoEndpoint: http://host.docker.internal:4566
+      corsOrigin: '*'
+    prod:
+      bucketName: jheem-test-tiny-bucket
+      tableName: jheem-test-tiny
+      s3Endpoint: ''
+      dynamoEndpoint: ''
+      corsOrigin: 'https://jheem-portal.vercel.app'
+  
+  # LocalStack configuration (only active for local stage)
   localstack:
     stages:
       - local
     host: http://localhost
     edgePort: 4566
-    autostart: false  # We'll start LocalStack manually
+    autostart: false
   
-  # Resource names
-  bucketName: prerun-plots-bucket-${self:provider.stage}
-  tableName: jheem-plot-metadata-${self:provider.stage}
+  # Current stage configuration
+  stage: ${self:custom.stages.${self:provider.stage}}
 
 functions:
   getPrerunPlot:
@@ -41,12 +82,10 @@ functions:
           path: plot
           method: get
           cors:
-            origin: '*'
+            origin: ${self:custom.stage.corsOrigin}
             headers:
               - Content-Type
             allowCredentials: false
-    environment:
-      S3_BUCKET_NAME: ${self:custom.bucketName}
 
   searchPlots:
     handler: src/handlers/plot_discovery.search_plots
@@ -55,13 +94,10 @@ functions:
           path: plots/search
           method: get
           cors:
-            origin: '*'
+            origin: ${self:custom.stage.corsOrigin}
             headers:
               - Content-Type
             allowCredentials: false
-    environment:
-      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
-      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
       
   registerPlot:
     handler: src/handlers/plot_discovery.register_plot
@@ -70,13 +106,10 @@ functions:
           path: plots/register
           method: post
           cors:
-            origin: '*'
+            origin: ${self:custom.stage.corsOrigin}
             headers:
               - Content-Type
             allowCredentials: false
-    environment:
-      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
-      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
 
   getAllCities:
     handler: src/handlers/plot_discovery.get_all_available_cities
@@ -85,35 +118,32 @@ functions:
           path: plots/cities
           method: get
           cors:
-            origin: '*'
+            origin: ${self:custom.stage.corsOrigin}
             headers:
               - Content-Type
             allowCredentials: false
-    environment:
-      DYNAMODB_ENDPOINT_URL: http://host.docker.internal:4566
-      DYNAMODB_TABLE_NAME: ${self:custom.tableName}
 
-resources:
-  Resources:
-    # S3 bucket for storing plot JSON files
-    PlotsBucket:
-      Type: AWS::S3::Bucket
-      Properties:
-        BucketName: ${self:custom.bucketName}
-    
-    # DynamoDB table for plot metadata
-    PlotMetadataTable:
-      Type: AWS::DynamoDB::Table
-      Properties:
-        TableName: ${self:custom.tableName}
-        AttributeDefinitions:
-          - AttributeName: city_scenario
-            AttributeType: S
-          - AttributeName: outcome_stat_facet
-            AttributeType: S
-        KeySchema:
-          - AttributeName: city_scenario
-            KeyType: HASH
-          - AttributeName: outcome_stat_facet
-            KeyType: RANGE
-        BillingMode: PAY_PER_REQUEST
+# Resources section commented out for production - using existing S3 bucket and DynamoDB table
+# Uncomment for local development with LocalStack
+# resources:
+#   Resources:
+#     PlotsBucket:
+#       Type: AWS::S3::Bucket
+#       Properties:
+#         BucketName: ${self:custom.stage.bucketName}
+#     
+#     PlotMetadataTable:
+#       Type: AWS::DynamoDB::Table
+#       Properties:
+#         TableName: ${self:custom.stage.tableName}
+#         AttributeDefinitions:
+#           - AttributeName: city_scenario
+#             AttributeType: S
+#           - AttributeName: outcome_stat_facet
+#             AttributeType: S
+#         KeySchema:
+#           - AttributeName: city_scenario
+#             KeyType: HASH
+#           - AttributeName: outcome_stat_facet
+#             KeyType: RANGE
+#         BillingMode: PAY_PER_REQUEST

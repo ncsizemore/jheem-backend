@@ -43,15 +43,16 @@ def search_plots(event, context):
             }
         
         # Initialize DynamoDB client
-        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL', 'http://localhost:4566')
+        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL')
         
-        dynamodb = boto3.resource(
-            'dynamodb',
-            endpoint_url=dynamodb_endpoint,
-            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
-            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
-            region_name='us-east-1'
-        )
+        # Build client args conditionally
+        client_args = {'region_name': 'us-east-1'}
+        
+        # Only set endpoint_url if it's a valid URL (not empty string)
+        if dynamodb_endpoint and dynamodb_endpoint.strip():
+            client_args['endpoint_url'] = dynamodb_endpoint
+            
+        dynamodb = boto3.resource('dynamodb', **client_args)
         
         table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
         table = dynamodb.Table(table_name)
@@ -181,15 +182,16 @@ def register_plot(event, context):
             }
         
         # Initialize DynamoDB client
-        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL', 'http://localhost:4566')
+        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL')
         
-        dynamodb = boto3.resource(
-            'dynamodb',
-            endpoint_url=dynamodb_endpoint,
-            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
-            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
-            region_name='us-east-1'
-        )
+        # Build client args conditionally
+        client_args = {'region_name': 'us-east-1'}
+        
+        # Only set endpoint_url if it's a valid URL (not empty string)
+        if dynamodb_endpoint and dynamodb_endpoint.strip():
+            client_args['endpoint_url'] = dynamodb_endpoint
+            
+        dynamodb = boto3.resource('dynamodb', **client_args)
         
         table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
         table = dynamodb.Table(table_name)
@@ -275,15 +277,16 @@ def get_all_available_cities(event, context):
     
     try:
         # Initialize DynamoDB client
-        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL', 'http://localhost:4566')
+        dynamodb_endpoint = os.environ.get('DYNAMODB_ENDPOINT_URL')
         
-        dynamodb = boto3.resource(
-            'dynamodb',
-            endpoint_url=dynamodb_endpoint,
-            aws_access_key_id=os.environ.get('AWS_ACCESS_KEY_ID', 'test'),
-            aws_secret_access_key=os.environ.get('AWS_SECRET_ACCESS_KEY', 'test'),
-            region_name='us-east-1'
-        )
+        # Build client args conditionally
+        client_args = {'region_name': 'us-east-1'}
+        
+        # Only set endpoint_url if it's a valid URL (not empty string)
+        if dynamodb_endpoint and dynamodb_endpoint.strip():
+            client_args['endpoint_url'] = dynamodb_endpoint
+            
+        dynamodb = boto3.resource('dynamodb', **client_args)
         
         table_name = os.environ.get('DYNAMODB_TABLE_NAME', 'jheem-plot-metadata')
         table = dynamodb.Table(table_name)

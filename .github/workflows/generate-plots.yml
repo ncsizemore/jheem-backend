@@ -154,9 +154,11 @@ jobs:
           # Upload JSON and HTML files to S3
           for plot_file in $(find plots -name "*.json" -o -name "*.html"); do
             if [[ -f "$plot_file" ]]; then
-              # Preserve directory structure in S3 key
+              # Preserve directory structure in S3 key, removing city prefix to avoid duplication
               relative_path=${plot_file#plots/}
-              s3_key="github_actions_integration/${{ matrix.city }}/${relative_path}"
+              # Remove city directory from path since it's already in the S3 prefix
+              clean_path=${relative_path#*/}
+              s3_key="github_actions_integration/${{ matrix.city }}/${clean_path}"
               
               echo "📤 Uploading: $plot_file → s3://jheem-test-tiny-bucket/$s3_key"
               aws s3 cp "$plot_file" "s3://jheem-test-tiny-bucket/$s3_key" \
@@ -175,13 +177,15 @@ jobs:
         run: |
           echo "📋 Registering plot metadata in DynamoDB..."
           
-          # Register each JSON plot file in DynamoDB (only JSON files, not HTML)
-          for plot_file in $(find plots -name "*.json"); do
+          # Register each JSON plot file in DynamoDB (only JSON files, not HTML or metadata)
+          for plot_file in $(find plots -name "*.json" ! -name "*_metadata.json"); do
             if [[ -f "$plot_file" ]]; then
               # Extract plot information from filename and path
               relative_path=${plot_file#plots/}
               filename=$(basename "$plot_file")
-              s3_key="github_actions_integration/${{ matrix.city }}/${relative_path}"
+              # Remove city directory from path to avoid duplication
+              clean_path=${relative_path#*/}
+              s3_key="github_actions_integration/${{ matrix.city }}/${clean_path}"
               file_size=$(stat -c%s "$plot_file" 2>/dev/null || stat -f%z "$plot_file")
               
               # Parse plot details from container-generated filename
