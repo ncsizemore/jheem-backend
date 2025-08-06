@@ -202,20 +202,22 @@ jobs:
                 facet="none"
               fi
               
+              # Create composite keys for Lambda compatibility
+              city_scenario="${{ matrix.city }}#${scenario}"
+              outcome_stat_facet="${outcome}#${statistic}#${facet}"
               plot_id="container_${{ matrix.city }}_${base_name}"
               
-              echo "📋 Registering: $plot_id (scenario: $scenario, outcome: $outcome)"
+              echo "📋 Registering: $plot_id (city_scenario: $city_scenario, outcome_stat_facet: $outcome_stat_facet)"
               
-              # Create DynamoDB item with real plot metadata
+              # Create DynamoDB item with Lambda-compatible schema
               aws dynamodb put-item \
                 --table-name jheem-test-tiny \
                 --item "{
-                  \"city\": {\"S\": \"${{ matrix.city }}\"},
-                  \"plot_id\": {\"S\": \"$plot_id\"},
-                  \"scenario\": {\"S\": \"$scenario\"},
+                  \"city_scenario\": {\"S\": \"$city_scenario\"},
+                  \"outcome_stat_facet\": {\"S\": \"$outcome_stat_facet\"},
                   \"outcome\": {\"S\": \"$outcome\"},
-                  \"statistic\": {\"S\": \"$statistic\"},
-                  \"facet\": {\"S\": \"$facet\"},
+                  \"statistic_type\": {\"S\": \"$statistic\"},
+                  \"facet_choice\": {\"S\": \"$facet\"},
                   \"s3_key\": {\"S\": \"$s3_key\"},
                   \"file_size\": {\"N\": \"$file_size\"},
                   \"source\": {\"S\": \"github_actions_container\"},
@@ -240,13 +242,14 @@ jobs:
           echo "📁 S3 files for ${{ matrix.city }}:"
           aws s3 ls "s3://jheem-test-tiny-bucket/github_actions_integration/${{ matrix.city }}/" --recursive || echo "No files found"
           
-          # Query DynamoDB for registered plots
+          # Query DynamoDB for registered plots using new composite key schema
           echo "📊 DynamoDB records for ${{ matrix.city }}:"
-          aws dynamodb query \
+          aws dynamodb scan \
             --table-name jheem-test-tiny \
-            --key-condition-expression "city = :city" \
-            --expression-attribute-values "{\":city\":{\"S\":\"${{ matrix.city }}\"}}" \
-            --query "Items[?contains(plot_id.S, 'container_')].[plot_id.S, scenario.S, outcome.S, s3_key.S]" \
+            --filter-expression "begins_with(city_scenario, :city) AND contains(#source, :container_source)" \
+            --expression-attribute-names '{"#source": "source"}' \
+            --expression-attribute-values '{":city":{"S":"${{ matrix.city }}#"}, ":container_source":{"S":"container"}}' \
+            --query "Items[*].[city_scenario.S, outcome_stat_facet.S, outcome.S, s3_key.S]" \
             --output table || echo "No records found"
             
       - name: Report completion
