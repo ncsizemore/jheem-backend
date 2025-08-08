@@ -160,11 +160,11 @@ jobs:
           echo "   - JSON files: $json_count"
           echo "   - HTML files: $html_count"
           
-          # If container failed, show diagnostic info but continue workflow
+          # If container failed, fail the workflow (for debugging)
           if [ $docker_exit_code -ne 0 ]; then
-            echo "⚠️ Container completed with exit code: $docker_exit_code"
-            echo "📋 Some plots may have failed, but continuing with upload of successful plots"
-            # Don't exit here - let workflow continue to upload partial results
+            echo "❌ Container failed with exit code: $docker_exit_code"
+            echo "📋 Failing workflow to avoid costs during debugging"
+            exit $docker_exit_code
           else
             echo "✅ Container completed successfully"
           fi
