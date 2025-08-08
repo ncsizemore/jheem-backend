@@ -134,18 +134,40 @@ jobs:
           
           # Generate real plots using container
           echo "🐳 Running container plot generation..."
-          docker run --rm \
+          
+          # Capture full container output and exit code
+          set +e  # Don't exit immediately on error, so we can capture output
+          docker_output=$(docker run --rm \
             -v $(pwd)/simulations:/app/simulations:ro \
             -v $(pwd)/plots:/app/plots \
             -v $(pwd)/orchestration_configs:/app/configs:ro \
             849611540600.dkr.ecr.us-east-1.amazonaws.com/jheem-ryan-white-model:latest batch \
             --config /app/configs/$(basename "$JOB_CONFIG") \
             ${{ github.event.inputs.config_type == 'minimal' && '--include-html' || '' }} \
-            --s3-bucket jheem-test-tiny-bucket
+            --s3-bucket jheem-test-tiny-bucket 2>&1)
+          docker_exit_code=$?
+          set -e  # Re-enable exit on error
           
-          # Verify plot generation
-          echo "✅ Generated plots:"
-          find plots -name "*.json" -o -name "*.html" | head -10
+          # Always show container output for debugging
+          echo "🔍 Full container output:"
+          echo "$docker_output"
+          echo "🔍 Container exit code: $docker_exit_code"
+          
+          # Show generated files regardless of exit code
+          echo "📊 Real plots generated via container:"
+          json_count=$(find plots -name "*.json" | wc -l)
+          html_count=$(find plots -name "*.html" | wc -l)
+          echo "   - JSON files: $json_count"
+          echo "   - HTML files: $html_count"
+          
+          # If container failed, show diagnostic info but continue workflow
+          if [ $docker_exit_code -ne 0 ]; then
+            echo "⚠️ Container completed with exit code: $docker_exit_code"
+            echo "📋 Some plots may have failed, but continuing with upload of successful plots"
+            # Don't exit here - let workflow continue to upload partial results
+          else
+            echo "✅ Container completed successfully"
+          fi
           
       - name: Upload plots to S3
         run: |
@@ -258,13 +280,20 @@ jobs:
             
       - name: Report completion
         run: |
-          echo "✅ City ${{ matrix.city }} completed successfully"
-          
           # Count actual generated files
           json_count=$(find plots -name "*.json" | wc -l)
           html_count=$(find plots -name "*.html" | wc -l)
           
-          echo "📊 Real plots generated via container:"
+          # Count registered DynamoDB records
+          registered_count=$(aws dynamodb scan \
+            --table-name jheem-test-tiny \
+            --filter-expression "begins_with(city_scenario, :city) AND contains(#source, :container_source)" \
+            --expression-attribute-names '{"#source": "source"}' \
+            --expression-attribute-values '{":city":{"S":"${{ matrix.city }}#"}, ":container_source":{"S":"container"}}' \
+            --select COUNT \
+            --query "Count" || echo "0")
+          
+          echo "📊 Final results for ${{ matrix.city }}:"
           echo "   - JSON files: $json_count"
           echo "   - HTML files: $html_count" 
           echo "📋 Registered $json_count metadata records in DynamoDB"
