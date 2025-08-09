@@ -214,18 +214,47 @@ jobs:
               # Expected format: outcome_statistic_facet.json or outcome_statistic_facet_facetvalue.json
               base_name=$(echo $filename | sed 's/.json$//')
               
-              # Extract metadata from the JSON file if it exists
-              if command -v jq &> /dev/null && jq -e '.metadata' "$plot_file" > /dev/null 2>&1; then
-                scenario=$(jq -r '.metadata.scenario // "unknown"' "$plot_file")
-                outcome=$(jq -r '.metadata.outcome // "unknown"' "$plot_file") 
-                statistic=$(jq -r '.metadata.statistic // "unknown"' "$plot_file")
-                facet=$(jq -r '.metadata.facet // "unknown"' "$plot_file")
+              # Extract metadata from the corresponding metadata JSON file
+              metadata_file="${plot_file%.json}_metadata.json"
+              if [[ -f "$metadata_file" ]] && command -v jq &> /dev/null; then
+                # Extract from metadata file (values are arrays, so use .[0] to get first element)
+                scenario=$(jq -r '.scenario[0] // "unknown"' "$metadata_file")
+                outcome=$(jq -r '.outcome[0] // "unknown"' "$metadata_file") 
+                statistic=$(jq -r '.statistic_type[0] // "unknown"' "$metadata_file")
+                facet_raw=$(jq -r '.facet_choice[0] // "unknown"' "$metadata_file")
+                
+                # Handle facet conversion (age/sex -> actual value, empty -> none)
+                if [[ "$facet_raw" == "none" ]] || [[ "$facet_raw" == "" ]]; then
+                  facet="none"
+                else
+                  facet="$facet_raw"
+                fi
               else
-                # Fallback parsing from filename
-                scenario="cessation"  # Default for minimal test
+                # Fallback: parse from filename (improved logic)
+                # Extract scenario from directory path
+                scenario=$(echo "$relative_path" | cut -d'/' -f2)
+                
+                # Extract outcome (first part before _)
                 outcome=$(echo $base_name | cut -d'_' -f1)
-                statistic="mean.and.interval"
-                facet="none"
+                
+                # Extract statistic (middle part)
+                statistic=$(echo $base_name | cut -d'_' -f2)
+                if [[ "$base_name" == *"mean.and.interval"* ]]; then
+                  statistic="mean.and.interval"
+                fi
+                
+                # Extract facet from filename (unfaceted vs facet_X)
+                if [[ "$base_name" == *"unfaceted"* ]]; then
+                  facet="none"
+                elif [[ "$base_name" == *"facet_"* ]]; then
+                  # Extract what comes after facet_
+                  facet=$(echo $base_name | sed -n 's/.*facet_\([^_]*\).*/\1/p')
+                  if [[ -z "$facet" ]]; then
+                    facet="none"
+                  fi
+                else
+                  facet="none"
+                fi
               fi
               
               # Create composite keys for Lambda compatibility
