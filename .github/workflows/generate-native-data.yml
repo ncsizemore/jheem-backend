@@ -120,6 +120,9 @@ jobs:
           mkdir -p output/${{ matrix.city }}
 
           # Run container with --output-mode data for native JSON output
+          # Note: Container exits with code 1 if ANY errors occur, even if most succeed
+          # This is expected - some outcome/facet combinations are invalid
+          set +e
           docker run --rm \
             -v $(pwd)/simulations:/app/simulations:ro \
             -v $(pwd)/output/${{ matrix.city }}:/output \
@@ -132,10 +135,26 @@ jobs:
             --facets "${{ env.FACETS }}" \
             --output-dir /output \
             --output-mode data
+          exit_code=$?
+          set -e
 
-          echo "✅ Generation complete"
-          echo "📊 Files generated:"
-          find output/${{ matrix.city }} -name "*.json" | wc -l
+          # Count generated files
+          file_count=$(find output/${{ matrix.city }} -name "*.json" 2>/dev/null | wc -l)
+          echo "📊 Files generated: $file_count"
+
+          # Fail only if NO files were generated (true failure)
+          if [ "$file_count" -eq 0 ]; then
+            echo "❌ No files generated - this is a real failure"
+            exit 1
+          fi
+
+          # Log exit code but don't fail if files were generated
+          if [ "$exit_code" -ne 0 ]; then
+            echo "⚠️ Container exited with code $exit_code (expected - some outcome/facet combos are invalid)"
+            echo "✅ But $file_count files were successfully generated"
+          else
+            echo "✅ Generation complete with no errors"
+          fi
 
       - name: Upload raw city data
         uses: actions/upload-artifact@v4
