@@ -1,0 +1,265 @@
+name: Generate Native Plot Data
+
+on:
+  workflow_dispatch:
+    inputs:
+      cities:
+        description: 'Cities to generate'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - test      # 3 cities for testing
+          - full      # All 31 cities
+      include_individual_simulation:
+        description: 'Include individual simulation statistic (larger files)'
+        required: true
+        default: false
+        type: boolean
+      max_parallel:
+        description: 'Maximum parallel city jobs'
+        required: true
+        default: '4'
+        type: string
+
+env:
+  # Statistics to generate (individual.simulation excluded by default)
+  BASE_STATISTICS: 'mean.and.interval,median.and.interval'
+  ALL_STATISTICS: 'mean.and.interval,median.and.interval,individual.simulation'
+
+  # All facets including multi-dimensional
+  FACETS: 'none,age,race,sex,risk,age+race,age+sex,age+risk,race+sex,race+risk,sex+risk,age+race+sex,age+race+risk,age+sex+risk,race+sex+risk,age+race+sex+risk'
+
+  # All outcomes
+  OUTCOMES: 'incidence,diagnosed.prevalence,suppression,testing,prep.uptake,awareness,rw.clients,adap.clients,non.adap.clients,oahs.clients,adap.proportion,oahs.suppression,adap.suppression,new'
+
+  # All scenarios
+  SCENARIOS: 'cessation,brief_interruption,prolonged_interruption'
+
+jobs:
+  # ===========================================
+  # Phase 1: Prepare city list
+  # ===========================================
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      cities: ${{ steps.set-cities.outputs.cities }}
+      statistics: ${{ steps.set-stats.outputs.statistics }}
+    steps:
+      - name: Set city list
+        id: set-cities
+        run: |
+          if [ "${{ github.event.inputs.cities }}" == "test" ]; then
+            # Test set: Baltimore + Atlanta + Chicago
+            echo 'cities=["C.12580", "C.12060", "C.16980"]' >> $GITHUB_OUTPUT
+            echo "Using TEST city set (3 cities)"
+          else
+            # Full set: All 31 cities
+            echo 'cities=["C.12060", "C.12420", "C.12580", "C.12940", "C.14460", "C.16740", "C.16980", "C.17460", "C.18140", "C.19100", "C.19820", "C.26420", "C.26900", "C.27260", "C.29820", "C.31080", "C.32820", "C.33100", "C.35380", "C.35620", "C.36740", "C.37980", "C.38060", "C.40140", "C.40900", "C.41700", "C.41740", "C.41860", "C.42660", "C.45300", "C.47900"]' >> $GITHUB_OUTPUT
+            echo "Using FULL city set (31 cities)"
+          fi
+
+      - name: Set statistics
+        id: set-stats
+        run: |
+          if [ "${{ github.event.inputs.include_individual_simulation }}" == "true" ]; then
+            echo "statistics=${{ env.ALL_STATISTICS }}" >> $GITHUB_OUTPUT
+            echo "Including individual.simulation statistic"
+          else
+            echo "statistics=${{ env.BASE_STATISTICS }}" >> $GITHUB_OUTPUT
+            echo "Excluding individual.simulation statistic"
+          fi
+
+  # ===========================================
+  # Phase 2: Generate data per city (parallel)
+  # ===========================================
+  generate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        city: ${{ fromJson(needs.prepare.outputs.cities) }}
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel) }}
+      fail-fast: false  # Continue other cities if one fails
+    steps:
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download simulation data
+        run: |
+          echo "📥 Downloading simulation data for ${{ matrix.city }}"
+
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.city }}
+
+          # Download base simulation
+          aws s3 cp s3://jheem-data-production/simulations/ryan-white/base/${{ matrix.city }}_base.Rdata \
+            simulations/ryan-white/base/${{ matrix.city }}_base.Rdata
+
+          # Download prerun simulations
+          aws s3 sync s3://jheem-data-production/simulations/ryan-white/prerun/${{ matrix.city }}/ \
+            simulations/ryan-white/prerun/${{ matrix.city }}/
+
+          echo "✅ Downloaded simulation data"
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.city }}/
+
+      - name: Login to ECR
+        run: |
+          aws ecr get-login-password --region us-east-1 | \
+            docker login --username AWS --password-stdin 849611540600.dkr.ecr.us-east-1.amazonaws.com
+
+      - name: Generate native data
+        run: |
+          echo "🏙️ Generating native data for ${{ matrix.city }}"
+
+          mkdir -p output/${{ matrix.city }}
+
+          # Run container with --output-mode data for native JSON output
+          docker run --rm \
+            -v $(pwd)/simulations:/app/simulations:ro \
+            -v $(pwd)/output/${{ matrix.city }}:/output \
+            849611540600.dkr.ecr.us-east-1.amazonaws.com/jheem-ryan-white-model:latest \
+            batch \
+            --city ${{ matrix.city }} \
+            --scenarios ${{ env.SCENARIOS }} \
+            --outcomes ${{ env.OUTCOMES }} \
+            --statistics ${{ needs.prepare.outputs.statistics }} \
+            --facets "${{ env.FACETS }}" \
+            --output-dir /output \
+            --output-mode data
+
+          echo "✅ Generation complete"
+          echo "📊 Files generated:"
+          find output/${{ matrix.city }} -name "*.json" | wc -l
+
+      - name: Upload raw city data
+        uses: actions/upload-artifact@v4
+        with:
+          name: raw-data-${{ matrix.city }}
+          path: output/${{ matrix.city }}/
+          retention-days: 30
+
+  # ===========================================
+  # Phase 3: Aggregate and finalize
+  # ===========================================
+  aggregate:
+    needs: [prepare, generate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Download all city artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: raw-data-*
+          path: raw-data/
+
+      - name: List downloaded artifacts
+        run: |
+          echo "📦 Downloaded artifacts:"
+          ls -la raw-data/
+          for dir in raw-data/*/; do
+            city=$(basename "$dir" | sed 's/raw-data-//')
+            count=$(find "$dir" -name "*.json" | wc -l)
+            echo "  $city: $count files"
+          done
+
+      - name: Aggregate city data
+        working-directory: portal
+        run: |
+          echo "📊 Aggregating city data..."
+
+          mkdir -p public/data
+
+          # Process each city
+          for dir in ../raw-data/raw-data-*/; do
+            city=$(basename "$dir" | sed 's/raw-data-//')
+            echo "Processing $city..."
+
+            # The raw data is in raw-data/raw-data-C.XXXXX/C.XXXXX/scenario/...
+            # Find the actual city directory
+            city_dir=$(find "$dir" -maxdepth 1 -type d -name "C.*" | head -1)
+
+            if [ -z "$city_dir" ]; then
+              echo "  ⚠️ No city directory found in $dir, checking structure..."
+              ls -la "$dir"
+              # Maybe files are directly in the artifact directory
+              city_dir="$dir"
+            fi
+
+            npx tsx scripts/aggregate-city-data.ts "$city_dir" "public/data/${city}.json"
+
+            if [ -f "public/data/${city}.json" ]; then
+              size=$(ls -lh "public/data/${city}.json" | awk '{print $5}')
+              echo "  ✅ Created ${city}.json ($size)"
+            else
+              echo "  ❌ Failed to create ${city}.json"
+            fi
+          done
+
+      - name: Generate city summaries
+        working-directory: portal
+        run: |
+          echo "📋 Generating city summaries..."
+          npx tsx scripts/generate-city-summaries.ts
+
+          if [ -f "public/data/city-summaries.json" ]; then
+            cities=$(cat public/data/city-summaries.json | grep -o '"C\.[0-9]*"' | wc -l)
+            echo "✅ Generated city-summaries.json with $cities cities"
+          else
+            echo "⚠️ city-summaries.json not created (may need more cities)"
+          fi
+
+      - name: Summary
+        working-directory: portal
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 GENERATION COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "Aggregated city files:"
+          ls -lh public/data/C.*.json 2>/dev/null || echo "  (none)"
+          echo ""
+          echo "City summaries:"
+          ls -lh public/data/city-summaries.json 2>/dev/null || echo "  (none)"
+          echo ""
+
+          # Calculate total sizes
+          total_raw=$(du -sh ../raw-data/ | cut -f1)
+          total_agg=$(du -sh public/data/ | cut -f1)
+          echo "Total raw data: $total_raw"
+          echo "Total aggregated: $total_agg"
+
+      - name: Upload final aggregated data
+        uses: actions/upload-artifact@v4
+        with:
+          name: aggregated-city-data
+          path: portal/public/data/
+          retention-days: 90
+
+      - name: Upload city summaries
+        uses: actions/upload-artifact@v4
+        with:
+          name: city-summaries
+          path: portal/public/data/city-summaries.json
+          retention-days: 90
+          if-no-files-found: warn
