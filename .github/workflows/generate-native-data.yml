@@ -268,17 +268,50 @@ jobs:
           echo "Total raw data: $total_raw"
           echo "Total aggregated: $total_agg"
 
-      - name: Upload final aggregated data
-        uses: actions/upload-artifact@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          name: aggregated-city-data
-          path: portal/public/data/
-          retention-days: 90
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: Upload city summaries
-        uses: actions/upload-artifact@v4
-        with:
-          name: city-summaries
-          path: portal/public/data/city-summaries.json
-          retention-days: 90
-          if-no-files-found: warn
+      - name: Upload to S3 (CloudFront origin)
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading to S3..."
+
+          # Upload city JSON files with gzip compression and proper content type
+          for file in public/data/C.*.json; do
+            if [ -f "$file" ]; then
+              filename=$(basename "$file")
+              echo "  Uploading $filename..."
+
+              # Gzip the file for smaller transfer
+              gzip -c "$file" > "${file}.gz"
+
+              # Upload with Content-Encoding: gzip
+              aws s3 cp "${file}.gz" \
+                "s3://jheem-data-production/portal/ryan-white/${filename}" \
+                --content-type "application/json" \
+                --content-encoding "gzip"
+            fi
+          done
+
+          # Upload city summaries (also gzipped)
+          if [ -f "public/data/city-summaries.json" ]; then
+            echo "  Uploading city-summaries.json..."
+            gzip -c public/data/city-summaries.json > public/data/city-summaries.json.gz
+            aws s3 cp public/data/city-summaries.json.gz \
+              "s3://jheem-data-production/portal/ryan-white/city-summaries.json" \
+              --content-type "application/json" \
+              --content-encoding "gzip"
+          fi
+
+          echo ""
+          echo "✅ Uploaded to S3. Files available at:"
+          echo "   https://d320iym4dtm9lj.cloudfront.net/ryan-white/C.XXXXX.json"
+          echo ""
+
+          # List uploaded files
+          echo "📋 S3 contents:"
+          aws s3 ls s3://jheem-data-production/portal/ryan-white/
