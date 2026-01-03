@@ -19,7 +19,7 @@ on:
       max_parallel:
         description: 'Maximum parallel city jobs'
         required: true
-        default: '4'
+        default: '10'
         type: string
 
 env:
@@ -71,7 +71,7 @@ jobs:
           fi
 
   # ===========================================
-  # Phase 2: Generate data per city (parallel)
+  # Phase 2: Generate, aggregate, and upload per city
   # ===========================================
   generate:
     needs: prepare
@@ -82,6 +82,21 @@ jobs:
       max-parallel: ${{ fromJson(github.event.inputs.max_parallel) }}
       fail-fast: false  # Continue other cities if one fails
     steps:
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci
+
       - name: Configure AWS credentials
         uses: aws-actions/configure-aws-credentials@v4
         with:
@@ -156,21 +171,56 @@ jobs:
             echo "✅ Generation complete with no errors"
           fi
 
-      - name: Upload raw city data
-        uses: actions/upload-artifact@v4
-        with:
-          name: raw-data-${{ matrix.city }}
-          path: output/${{ matrix.city }}/
-          retention-days: 30
+      - name: Aggregate city data
+        working-directory: portal
+        run: |
+          echo "📊 Aggregating data for ${{ matrix.city }}..."
+
+          mkdir -p public/data
+
+          # Find the city data directory
+          city_dir="../output/${{ matrix.city }}/${{ matrix.city }}"
+
+          if [ ! -d "$city_dir" ]; then
+            # Try without nested directory
+            city_dir="../output/${{ matrix.city }}"
+          fi
+
+          echo "Using city directory: $city_dir"
+
+          npx tsx scripts/aggregate-city-data.ts "$city_dir" "public/data/${{ matrix.city }}.json"
+
+          if [ -f "public/data/${{ matrix.city }}.json" ]; then
+            size=$(ls -lh "public/data/${{ matrix.city }}.json" | awk '{print $5}')
+            echo "✅ Created ${{ matrix.city }}.json ($size)"
+          else
+            echo "❌ Failed to create ${{ matrix.city }}.json"
+            exit 1
+          fi
+
+      - name: Upload to S3
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading ${{ matrix.city }}.json to S3..."
+
+          # Gzip and upload
+          gzip -c "public/data/${{ matrix.city }}.json" > "public/data/${{ matrix.city }}.json.gz"
+
+          aws s3 cp "public/data/${{ matrix.city }}.json.gz" \
+            "s3://jheem-data-production/portal/ryan-white/${{ matrix.city }}.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo "✅ Uploaded to S3"
 
   # ===========================================
-  # Phase 3: Aggregate and finalize
+  # Phase 3: Generate city summaries
   # ===========================================
-  aggregate:
+  finalize:
     needs: [prepare, generate]
     runs-on: ubuntu-latest
     steps:
-      - name: Checkout jheem-portal (for aggregation scripts)
+      - name: Checkout jheem-portal
         uses: actions/checkout@v4
         with:
           repository: ncsizemore/jheem-portal
@@ -185,54 +235,26 @@ jobs:
         working-directory: portal
         run: npm ci
 
-      - name: Download all city artifacts
-        uses: actions/download-artifact@v4
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
         with:
-          pattern: raw-data-*
-          path: raw-data/
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
 
-      - name: List downloaded artifacts
-        run: |
-          echo "📦 Downloaded artifacts:"
-          ls -la raw-data/
-          for dir in raw-data/*/; do
-            city=$(basename "$dir" | sed 's/raw-data-//')
-            count=$(find "$dir" -name "*.json" | wc -l)
-            echo "  $city: $count files"
-          done
-
-      - name: Aggregate city data
+      - name: Download aggregated city files from S3
         working-directory: portal
         run: |
-          echo "📊 Aggregating city data..."
-
+          echo "📥 Downloading aggregated city files from S3..."
           mkdir -p public/data
 
-          # Process each city
-          for dir in ../raw-data/raw-data-*/; do
-            city=$(basename "$dir" | sed 's/raw-data-//')
-            echo "Processing $city..."
+          # Download all city JSON files
+          aws s3 sync s3://jheem-data-production/portal/ryan-white/ public/data/ \
+            --exclude "*" \
+            --include "C.*.json"
 
-            # The raw data is in raw-data/raw-data-C.XXXXX/C.XXXXX/scenario/...
-            # Find the actual city directory
-            city_dir=$(find "$dir" -maxdepth 1 -type d -name "C.*" | head -1)
-
-            if [ -z "$city_dir" ]; then
-              echo "  ⚠️ No city directory found in $dir, checking structure..."
-              ls -la "$dir"
-              # Maybe files are directly in the artifact directory
-              city_dir="$dir"
-            fi
-
-            npx tsx scripts/aggregate-city-data.ts "$city_dir" "public/data/${city}.json"
-
-            if [ -f "public/data/${city}.json" ]; then
-              size=$(ls -lh "public/data/${city}.json" | awk '{print $5}')
-              echo "  ✅ Created ${city}.json ($size)"
-            else
-              echo "  ❌ Failed to create ${city}.json"
-            fi
-          done
+          echo "Downloaded files:"
+          ls -lh public/data/
 
       - name: Generate city summaries
         working-directory: portal
@@ -244,74 +266,28 @@ jobs:
             cities=$(cat public/data/city-summaries.json | grep -o '"C\.[0-9]*"' | wc -l)
             echo "✅ Generated city-summaries.json with $cities cities"
           else
-            echo "⚠️ city-summaries.json not created (may need more cities)"
+            echo "❌ city-summaries.json not created"
+            exit 1
           fi
 
-      - name: Summary
+      - name: Upload city summaries to S3
         working-directory: portal
         run: |
+          echo "☁️ Uploading city-summaries.json to S3..."
+
+          gzip -c public/data/city-summaries.json > public/data/city-summaries.json.gz
+          aws s3 cp public/data/city-summaries.json.gz \
+            "s3://jheem-data-production/portal/ryan-white/city-summaries.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
           echo ""
           echo "=========================================="
           echo "📊 GENERATION COMPLETE"
           echo "=========================================="
           echo ""
-          echo "Aggregated city files:"
-          ls -lh public/data/C.*.json 2>/dev/null || echo "  (none)"
-          echo ""
-          echo "City summaries:"
-          ls -lh public/data/city-summaries.json 2>/dev/null || echo "  (none)"
-          echo ""
-
-          # Calculate total sizes
-          total_raw=$(du -sh ../raw-data/ | cut -f1)
-          total_agg=$(du -sh public/data/ | cut -f1)
-          echo "Total raw data: $total_raw"
-          echo "Total aggregated: $total_agg"
-
-      - name: Configure AWS credentials
-        uses: aws-actions/configure-aws-credentials@v4
-        with:
-          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
-          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
-          aws-region: us-east-1
-
-      - name: Upload to S3 (CloudFront origin)
-        working-directory: portal
-        run: |
-          echo "☁️ Uploading to S3..."
-
-          # Upload city JSON files with gzip compression and proper content type
-          for file in public/data/C.*.json; do
-            if [ -f "$file" ]; then
-              filename=$(basename "$file")
-              echo "  Uploading $filename..."
-
-              # Gzip the file for smaller transfer
-              gzip -c "$file" > "${file}.gz"
-
-              # Upload with Content-Encoding: gzip
-              aws s3 cp "${file}.gz" \
-                "s3://jheem-data-production/portal/ryan-white/${filename}" \
-                --content-type "application/json" \
-                --content-encoding "gzip"
-            fi
-          done
-
-          # Upload city summaries (also gzipped)
-          if [ -f "public/data/city-summaries.json" ]; then
-            echo "  Uploading city-summaries.json..."
-            gzip -c public/data/city-summaries.json > public/data/city-summaries.json.gz
-            aws s3 cp public/data/city-summaries.json.gz \
-              "s3://jheem-data-production/portal/ryan-white/city-summaries.json" \
-              --content-type "application/json" \
-              --content-encoding "gzip"
-          fi
-
-          echo ""
-          echo "✅ Uploaded to S3. Files available at:"
-          echo "   https://d320iym4dtm9lj.cloudfront.net/ryan-white/C.XXXXX.json"
-          echo ""
-
-          # List uploaded files
           echo "📋 S3 contents:"
           aws s3 ls s3://jheem-data-production/portal/ryan-white/
+          echo ""
+          echo "🌐 Files available at:"
+          echo "   https://d320iym4dtm9lj.cloudfront.net/ryan-white/C.XXXXX.json"
