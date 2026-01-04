@@ -256,6 +256,25 @@ jobs:
           echo "Downloaded files:"
           ls -lh public/data/
 
+      - name: Decompress city files
+        working-directory: portal
+        run: |
+          echo "📦 Decompressing gzipped city files..."
+
+          # Files are stored with Content-Encoding: gzip, so they download as gzipped
+          # Decompress each file in place
+          for f in public/data/C.*.json; do
+            if file "$f" | grep -q "gzip compressed"; then
+              echo "  Decompressing $f"
+              gunzip -c "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            else
+              echo "  $f is already plain JSON"
+            fi
+          done
+
+          echo "Decompressed files:"
+          ls -lh public/data/
+
       - name: Generate city summaries
         working-directory: portal
         run: |
