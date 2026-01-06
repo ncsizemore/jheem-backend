@@ -123,10 +123,12 @@ jobs:
           ls -la simulations/ryan-white/base/
           ls -la simulations/ryan-white/prerun/${{ matrix.city }}/
 
-      - name: Login to ECR
-        run: |
-          aws ecr get-login-password --region us-east-1 | \
-            docker login --username AWS --password-stdin 849611540600.dkr.ecr.us-east-1.amazonaws.com
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Generate native data
         run: |
@@ -141,7 +143,7 @@ jobs:
           docker run --rm \
             -v $(pwd)/simulations:/app/simulations:ro \
             -v $(pwd)/output/${{ matrix.city }}:/output \
-            849611540600.dkr.ecr.us-east-1.amazonaws.com/jheem-ryan-white-model:latest \
+            ghcr.io/${{ github.repository_owner }}/jheem-ryan-white-model:latest \
             batch \
             --city ${{ matrix.city }} \
             --scenarios ${{ env.SCENARIOS }} \
