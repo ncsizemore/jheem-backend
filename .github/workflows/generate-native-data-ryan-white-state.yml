@@ -3,8 +3,8 @@ name: Generate Native Plot Data (Ryan White State-Level)
 # ===========================================
 # KNOWN ISSUES TO VERIFY WHEN TESTING
 # ===========================================
-# 1. Container CLI: The --city flag is used below, but state-level container
-#    may need --state flag or different argument handling for state codes (AL, CA, etc.)
+# 1. Container CLI: Using --city flag with state codes (AL, CA, etc.) - should
+#    work since container treats location generically, but verify behavior
 #
 # 2. Aggregation script: scripts/aggregate-city-data.ts may need updates to
 #    handle state codes instead of city codes (C.XXXXX format)
@@ -12,8 +12,8 @@ name: Generate Native Plot Data (Ryan White State-Level)
 # 3. Summary script: scripts/generate-city-summaries.ts may need a state-aware
 #    version or updates to recognize state code patterns
 #
-# 4. Simulation directory structure: Verify the container expects simulations
-#    at simulations/ryan-white-state-level/ (matching what we create below)
+# NOTE: Using same container as MSA-level (ghcr.io/ncsizemore/jheem-ryan-white-model)
+# Simulations mounted to simulations/ryan-white/ to match container's expected path
 # ===========================================
 
 on:
@@ -33,9 +33,9 @@ on:
         default: 'ryan-white-state-v1.0.0'
         type: string
       container_image:
-        description: 'Container image to use'
+        description: 'Container image to use (same container works for MSA and state-level)'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-state-model:latest'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:latest'
         type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'
@@ -136,8 +136,10 @@ jobs:
         run: |
           echo "📥 Downloading simulation data for ${{ matrix.state }} from release ${{ github.event.inputs.simulation_release }}"
 
-          mkdir -p simulations/ryan-white-state-level/base
-          mkdir -p simulations/ryan-white-state-level/prerun/${{ matrix.state }}
+          # Mount to simulations/ryan-white/ to match container's expected path
+          # (container uses hardcoded path, works for both MSA and state-level)
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.state }}
 
           # Download all files for this state from the release
           gh release download ${{ github.event.inputs.simulation_release }} \
@@ -147,19 +149,19 @@ jobs:
 
           # Move base file
           mv ./tmp-download/${{ matrix.state }}_base.Rdata \
-            simulations/ryan-white-state-level/base/
+            simulations/ryan-white/base/${{ matrix.state }}_base.Rdata
 
           # Move prerun files (remove state prefix to match expected structure)
           mv ./tmp-download/${{ matrix.state }}_cessation.Rdata \
-            simulations/ryan-white-state-level/prerun/${{ matrix.state }}/cessation.Rdata
+            simulations/ryan-white/prerun/${{ matrix.state }}/cessation.Rdata
           mv ./tmp-download/${{ matrix.state }}_brief_interruption.Rdata \
-            simulations/ryan-white-state-level/prerun/${{ matrix.state }}/brief_interruption.Rdata
+            simulations/ryan-white/prerun/${{ matrix.state }}/brief_interruption.Rdata
           mv ./tmp-download/${{ matrix.state }}_prolonged_interruption.Rdata \
-            simulations/ryan-white-state-level/prerun/${{ matrix.state }}/prolonged_interruption.Rdata
+            simulations/ryan-white/prerun/${{ matrix.state }}/prolonged_interruption.Rdata
 
           echo "✅ Downloaded simulation data"
-          ls -la simulations/ryan-white-state-level/base/
-          ls -la simulations/ryan-white-state-level/prerun/${{ matrix.state }}/
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.state }}/
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
