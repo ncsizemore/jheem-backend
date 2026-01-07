@@ -42,6 +42,11 @@ on:
         required: true
         default: false
         type: boolean
+      dry_run:
+        description: 'Skip S3 uploads (for testing generation and aggregation only)'
+        required: true
+        default: true
+        type: boolean
       max_parallel:
         description: 'Maximum parallel state jobs'
         required: true
@@ -241,6 +246,7 @@ jobs:
           fi
 
       - name: Upload to S3
+        if: ${{ github.event.inputs.dry_run != 'true' }}
         working-directory: portal
         run: |
           echo "☁️ Uploading ${{ matrix.state }}.json to S3..."
@@ -255,11 +261,20 @@ jobs:
 
           echo "✅ Uploaded to S3"
 
+      - name: Skip S3 upload (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        working-directory: portal
+        run: |
+          echo "🔸 DRY RUN - Skipping S3 upload"
+          echo "📊 Would upload: public/data/${{ matrix.state }}.json"
+          ls -lh "public/data/${{ matrix.state }}.json"
+
   # ===========================================
   # Phase 3: Generate state summaries
   # ===========================================
   finalize:
     needs: [prepare, generate]
+    if: ${{ github.event.inputs.dry_run != 'true' }}
     runs-on: ubuntu-latest
     steps:
       - name: Checkout jheem-portal
