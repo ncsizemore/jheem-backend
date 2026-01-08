@@ -9,8 +9,7 @@ name: Generate Native Plot Data (Ryan White State-Level)
 # 2. Aggregation script: scripts/aggregate-city-data.ts may need updates to
 #    handle state codes instead of city codes (C.XXXXX format)
 #
-# 3. Summary script: scripts/generate-city-summaries.ts may need a state-aware
-#    version or updates to recognize state code patterns
+# 3. Summary script: uses scripts/generate-state-summaries.ts (state-specific version)
 #
 # NOTE: Using same container as MSA-level (ghcr.io/ncsizemore/jheem-ryan-white-model)
 # Simulations mounted to simulations/ryan-white/ to match container's expected path
@@ -337,13 +336,10 @@ jobs:
         run: |
           echo "📋 Generating state summaries..."
 
-          # TODO: May need a separate script for state summaries, or update existing script
-          # to handle both city codes (C.XXXXX) and state codes (AL, CA, etc.)
-          npx tsx scripts/generate-city-summaries.ts
+          npx tsx scripts/generate-state-summaries.ts
 
-          if [ -f "public/data/city-summaries.json" ]; then
-            # Note: File might need to be renamed to state-summaries.json
-            states=$(cat public/data/city-summaries.json | grep -oE '"[A-Z]{2}"' | wc -l)
+          if [ -f "public/data/state-summaries.json" ]; then
+            states=$(cat public/data/state-summaries.json | grep -oE '"[A-Z]{2}"' | wc -l)
             echo "✅ Generated summaries with $states states"
           else
             echo "❌ Summaries file not created"
@@ -354,9 +350,6 @@ jobs:
         working-directory: portal
         run: |
           echo "☁️ Uploading state-summaries.json to S3..."
-
-          # Rename to state-summaries for clarity
-          mv public/data/city-summaries.json public/data/state-summaries.json || true
 
           gzip -c public/data/state-summaries.json > public/data/state-summaries.json.gz
           aws s3 cp public/data/state-summaries.json.gz \
