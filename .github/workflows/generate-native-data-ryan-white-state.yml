@@ -1,18 +1,13 @@
 name: Generate Native Plot Data (Ryan White State-Level)
 
 # ===========================================
-# KNOWN ISSUES TO VERIFY WHEN TESTING
+# NOTES
 # ===========================================
-# 1. Container CLI: Using --city flag with state codes (AL, CA, etc.) - should
-#    work since container treats location generically, but verify behavior
-#
-# 2. Aggregation script: scripts/aggregate-city-data.ts may need updates to
-#    handle state codes instead of city codes (C.XXXXX format)
-#
-# 3. Summary script: uses scripts/generate-state-summaries.ts (state-specific version)
-#
-# NOTE: Using same container as MSA-level (ghcr.io/ncsizemore/jheem-ryan-white-model)
-# Simulations mounted to simulations/ryan-white/ to match container's expected path
+# - Uses same container as MSA-level (ghcr.io/ncsizemore/jheem-ryan-white-model)
+# - Simulations mounted to simulations/ryan-white/ to match container's expected path
+# - Container --city flag works with state codes (AL, CA, etc.)
+# - Aggregation script (aggregate-city-data.ts) works for both city and state codes
+# - Summary script uses state-specific version (generate-state-summaries.ts)
 # ===========================================
 
 on:
