@@ -114,6 +114,25 @@ This session focused on optimizing cloud costs for the JHEEM data generation pip
 - [ ] Parameterize `--simulation-root` in container (optional enhancement)
 - [ ] Consider combined MSA + state map view in portal
 
+## URL Migration Notes
+
+**Published paper URLs to preserve:**
+- State-level paper references: `https://jheem.org/ryan-white-state-level`
+  - Currently: landing page for Shiny app
+  - After migration: redirect to `/ryan-white/state/explorer`
+- MSA paper URL: TBD (need to check paper)
+
+**Proposed route structure (Option C):**
+- `/ryan-white/msa/explorer` → MSA marker map
+- `/ryan-white/state/explorer` → State choropleth map
+- `/ryan-white/` → Landing page for both (refactored)
+
+**Choropleth prototype:**
+- Created `StateMapSample.tsx` with synthetic data
+- Route: `/ryan-white/explorer/state` (temporary for testing)
+- Uses GeoJSON fill layers with data-driven coloring
+- Matches MSA explorer interaction patterns (hover cards, click to explore)
+
 ## Files Created/Modified This Session
 
 ### New Files
@@ -122,6 +141,9 @@ This session focused on optimizing cloud costs for the JHEEM data generation pip
 - `jheem-backend/.github/workflows/generate-native-data-ryan-white-state.yml`
 - `jheem-portal/src/data/states.ts`
 - `jheem-portal/scripts/generate-state-summaries.ts`
+- `jheem-portal/src/components/StateMapSample.tsx` - Choropleth prototype
+- `jheem-portal/src/app/ryan-white/explorer/state/page.tsx` - Temp route for prototype
+- `jheem-portal/public/us-states.json` - GeoJSON for state boundaries
 
 ### Modified Files
 - `jheem-container-minimal/.github/workflows/build-and-push.yml`
