@@ -1,0 +1,370 @@
+name: Generate Native Plot Data (Ryan White State-Level CROI)
+
+# ===========================================
+# NOTES
+# ===========================================
+# - CROI 2026 version: 30 states, different scenarios than AJPH
+# - Uses CROI container (ghcr.io/ncsizemore/jheem-ryan-white-croi)
+# - Simulations from v2.0.0-web release (trimmed to 80 sims, 2016-2036)
+# - Scenarios: cessation, interruption, + conservative variants
+# ===========================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      states:
+        description: 'States to generate'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - test      # 3 states for testing
+          - full      # All 30 states
+      simulation_release:
+        description: 'Simulation release tag from jheem-simulations'
+        required: true
+        default: 'ryan-white-state-v2.0.0-web'
+        type: string
+      container_image:
+        description: 'Container image to use'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-croi:latest'
+        type: string
+      include_individual_simulation:
+        description: 'Include individual simulation statistic (larger files)'
+        required: true
+        default: false
+        type: boolean
+      dry_run:
+        description: 'Skip S3 uploads (for testing generation and aggregation only)'
+        required: true
+        default: true
+        type: boolean
+      max_parallel:
+        description: 'Maximum parallel state jobs'
+        required: true
+        default: '5'
+        type: string
+
+env:
+  # Statistics to generate (individual.simulation excluded by default)
+  BASE_STATISTICS: 'mean.and.interval,median.and.interval'
+  ALL_STATISTICS: 'mean.and.interval,median.and.interval,individual.simulation'
+
+  # All facets including multi-dimensional
+  FACETS: 'none,age,race,sex,risk,age+race,age+sex,age+risk,race+sex,race+risk,sex+risk,age+race+sex,age+race+risk,age+sex+risk,race+sex+risk,age+race+sex+risk'
+
+  # All outcomes
+  OUTCOMES: 'incidence,diagnosed.prevalence,suppression,testing,prep.uptake,awareness,rw.clients,adap.clients,non.adap.clients,oahs.clients,adap.proportion,oahs.suppression,adap.suppression,new'
+
+  # CROI scenarios (different from AJPH)
+  SCENARIOS: 'cessation,interruption,cessation_conservative,interruption_conservative'
+
+jobs:
+  # ===========================================
+  # Phase 1: Prepare state list
+  # ===========================================
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      states: ${{ steps.set-states.outputs.states }}
+      statistics: ${{ steps.set-stats.outputs.statistics }}
+    steps:
+      - name: Set state list
+        id: set-states
+        run: |
+          if [ "${{ github.event.inputs.states }}" == "test" ]; then
+            # Test set: AL + CA + FL
+            echo 'states=["AL", "CA", "FL"]' >> $GITHUB_OUTPUT
+            echo "Using TEST state set (3 states)"
+          else
+            # Full set: All 30 CROI states
+            echo 'states=["AL", "AR", "AZ", "CA", "CO", "FL", "GA", "IL", "IN", "KY", "LA", "MA", "MD", "MI", "MN", "MO", "MS", "NC", "NJ", "NV", "NY", "OH", "OK", "PA", "SC", "TN", "TX", "VA", "WA", "WI"]' >> $GITHUB_OUTPUT
+            echo "Using FULL state set (30 states)"
+          fi
+
+      - name: Set statistics
+        id: set-stats
+        run: |
+          if [ "${{ github.event.inputs.include_individual_simulation }}" == "true" ]; then
+            echo "statistics=${{ env.ALL_STATISTICS }}" >> $GITHUB_OUTPUT
+            echo "Including individual.simulation statistic"
+          else
+            echo "statistics=${{ env.BASE_STATISTICS }}" >> $GITHUB_OUTPUT
+            echo "Excluding individual.simulation statistic"
+          fi
+
+  # ===========================================
+  # Phase 2: Generate, aggregate, and upload per state
+  # ===========================================
+  generate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        state: ${{ fromJson(needs.prepare.outputs.states) }}
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel) }}
+      fail-fast: false  # Continue other states if one fails
+    steps:
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download simulation data from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "📥 Downloading simulation data for ${{ matrix.state }} from release ${{ github.event.inputs.simulation_release }}"
+
+          # Mount to simulations/ryan-white/ to match container's expected path
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.state }}
+
+          # Download all files for this state from the release
+          gh release download ${{ github.event.inputs.simulation_release }} \
+            --repo ncsizemore/jheem-simulations \
+            --pattern "${{ matrix.state }}_*.Rdata" \
+            --dir ./tmp-download
+
+          # Move base file
+          mv ./tmp-download/${{ matrix.state }}_base.Rdata \
+            simulations/ryan-white/base/${{ matrix.state }}_base.Rdata
+
+          # Move prerun files (CROI scenarios - different from AJPH)
+          mv ./tmp-download/${{ matrix.state }}_cessation.Rdata \
+            simulations/ryan-white/prerun/${{ matrix.state }}/cessation.Rdata
+          mv ./tmp-download/${{ matrix.state }}_interruption.Rdata \
+            simulations/ryan-white/prerun/${{ matrix.state }}/interruption.Rdata
+          mv ./tmp-download/${{ matrix.state }}_cessation_conservative.Rdata \
+            simulations/ryan-white/prerun/${{ matrix.state }}/cessation_conservative.Rdata
+          mv ./tmp-download/${{ matrix.state }}_interruption_conservative.Rdata \
+            simulations/ryan-white/prerun/${{ matrix.state }}/interruption_conservative.Rdata
+
+          echo "✅ Downloaded simulation data"
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.state }}/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate native data
+        run: |
+          echo "🏛️ Generating native data for ${{ matrix.state }}"
+
+          mkdir -p output/${{ matrix.state }}
+
+          # Run container with --output-mode data for native JSON output
+          # Note: Container exits with code 1 if ANY errors occur, even if most succeed
+          # This is expected - some outcome/facet combinations are invalid
+          set +e
+          docker run --rm \
+            -v $(pwd)/simulations:/app/simulations:ro \
+            -v $(pwd)/output/${{ matrix.state }}:/output \
+            ${{ github.event.inputs.container_image }} \
+            batch \
+            --city ${{ matrix.state }} \
+            --scenarios ${{ env.SCENARIOS }} \
+            --outcomes ${{ env.OUTCOMES }} \
+            --statistics ${{ needs.prepare.outputs.statistics }} \
+            --facets "${{ env.FACETS }}" \
+            --output-dir /output \
+            --output-mode data
+          exit_code=$?
+          set -e
+
+          # Count generated files
+          file_count=$(find output/${{ matrix.state }} -name "*.json" 2>/dev/null | wc -l)
+          echo "📊 Files generated: $file_count"
+
+          # Fail only if NO files were generated (true failure)
+          if [ "$file_count" -eq 0 ]; then
+            echo "❌ No files generated - this is a real failure"
+            exit 1
+          fi
+
+          # Log exit code but don't fail if files were generated
+          if [ "$exit_code" -ne 0 ]; then
+            echo "⚠️ Container exited with code $exit_code (expected - some outcome/facet combos are invalid)"
+            echo "✅ But $file_count files were successfully generated"
+          else
+            echo "✅ Generation complete with no errors"
+          fi
+
+      - name: Aggregate state data
+        working-directory: portal
+        run: |
+          echo "📊 Aggregating data for ${{ matrix.state }}..."
+
+          mkdir -p public/data
+
+          # Find the state data directory
+          state_dir="../output/${{ matrix.state }}/${{ matrix.state }}"
+
+          if [ ! -d "$state_dir" ]; then
+            # Try without nested directory
+            state_dir="../output/${{ matrix.state }}"
+          fi
+
+          echo "Using state directory: $state_dir"
+
+          npx tsx scripts/aggregate-city-data.ts "$state_dir" "public/data/${{ matrix.state }}.json"
+
+          if [ -f "public/data/${{ matrix.state }}.json" ]; then
+            size=$(ls -lh "public/data/${{ matrix.state }}.json" | awk '{print $5}')
+            echo "✅ Created ${{ matrix.state }}.json ($size)"
+          else
+            echo "❌ Failed to create ${{ matrix.state }}.json"
+            exit 1
+          fi
+
+      - name: Extract state summary
+        working-directory: portal
+        run: |
+          echo "📋 Extracting summary for ${{ matrix.state }}..."
+
+          npx tsx scripts/generate-state-summaries.ts --single ${{ matrix.state }} "public/data/${{ matrix.state }}.json"
+
+          # Move summary to a known location for artifact upload
+          mv "${{ matrix.state }}-summary.json" "public/data/${{ matrix.state }}-summary.json"
+
+          echo "✅ Summary extracted:"
+          ls -lh "public/data/${{ matrix.state }}-summary.json"
+
+      - name: Upload summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.state }}
+          path: portal/public/data/${{ matrix.state }}-summary.json
+          retention-days: 1
+
+      - name: Upload to S3
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading ${{ matrix.state }}.json to S3..."
+
+          # Gzip and upload to CROI-specific path
+          gzip -c "public/data/${{ matrix.state }}.json" > "public/data/${{ matrix.state }}.json.gz"
+
+          aws s3 cp "public/data/${{ matrix.state }}.json.gz" \
+            "s3://jheem-data-production/portal/ryan-white-state-croi/${{ matrix.state }}.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo "✅ Uploaded to S3"
+
+      - name: Skip S3 upload (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        working-directory: portal
+        run: |
+          echo "🔸 DRY RUN - Skipping S3 upload"
+          echo "📊 Would upload: public/data/${{ matrix.state }}.json"
+          ls -lh "public/data/${{ matrix.state }}.json"
+
+  # ===========================================
+  # Phase 3: Combine summaries and upload
+  # ===========================================
+  finalize:
+    needs: [prepare, generate]
+    if: ${{ github.event.inputs.dry_run != 'true' }}
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jheem-portal
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download summary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: summaries
+          merge-multiple: true
+
+      - name: List downloaded summaries
+        run: |
+          echo "📥 Downloaded summary artifacts:"
+          ls -lh summaries/
+          echo ""
+          echo "Total size: $(du -sh summaries/ | cut -f1)"
+
+      - name: Combine state summaries
+        working-directory: portal
+        run: |
+          echo "📋 Combining state summaries..."
+
+          # Find all summary files and pass to combine mode
+          summary_files=$(find ../summaries -name "*-summary.json" | sort | tr '\n' ' ')
+          echo "Found summaries: $summary_files"
+
+          npx tsx scripts/generate-state-summaries.ts --combine $summary_files
+
+          if [ -f "public/data/state-summaries.json" ]; then
+            states=$(cat public/data/state-summaries.json | grep -oE '"[A-Z]{2}"' | wc -l)
+            echo "✅ Combined summaries for $states states"
+            cat public/data/state-summaries.json | head -50
+          else
+            echo "❌ Summaries file not created"
+            exit 1
+          fi
+
+      - name: Upload state summaries to S3
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading state-summaries.json to S3..."
+
+          gzip -c public/data/state-summaries.json > public/data/state-summaries.json.gz
+          aws s3 cp public/data/state-summaries.json.gz \
+            "s3://jheem-data-production/portal/ryan-white-state-croi/state-summaries.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo ""
+          echo "=========================================="
+          echo "📊 GENERATION COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "📋 S3 contents:"
+          aws s3 ls s3://jheem-data-production/portal/ryan-white-state-croi/
+          echo ""
+          echo "🌐 Files available at:"
+          echo "   https://d320iym4dtm9lj.cloudfront.net/ryan-white-state-croi/{STATE}.json"
