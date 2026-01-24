@@ -1,0 +1,246 @@
+name: "[EXPERIMENTAL] Generate Native Data - Direct from Raw Simsets"
+
+# ===========================================
+# EXPERIMENTAL WORKFLOW
+# ===========================================
+# Tests whether we can skip the trimming step entirely by:
+# 1. Running batch mode directly on raw (1000-sim) simsets
+# 2. Letting the container extract statistics
+# 3. (Future) Filter JSON to desired year range if needed
+#
+# If this works without OOM, it's a simpler pipeline.
+# If it OOMs, we stick with the trimmed simset approach.
+# ===========================================
+
+on:
+  workflow_dispatch:
+    inputs:
+      states:
+        description: 'States to generate'
+        required: true
+        default: 'single'
+        type: choice
+        options:
+          - single    # Just AL for testing
+          - test      # 3 states
+          - full      # All 30 states (risky - may OOM)
+      simulation_release:
+        description: 'Raw simulation release tag'
+        required: true
+        default: 'ryan-white-state-v2.0.0'
+        type: string
+      container_image:
+        description: 'Container image to use'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-croi:latest'
+        type: string
+      dry_run:
+        description: 'Skip S3 uploads'
+        required: true
+        default: true
+        type: boolean
+
+env:
+  # Minimal statistics for testing
+  STATISTICS: 'mean.and.interval'
+
+  # Start with just unfaceted to minimize memory
+  FACETS: 'none'
+
+  # Key outcomes only
+  OUTCOMES: 'incidence,diagnosed.prevalence,suppression'
+
+  # CROI scenarios
+  SCENARIOS: 'cessation,interruption'
+
+jobs:
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      states: ${{ steps.set-states.outputs.states }}
+    steps:
+      - name: Set state list
+        id: set-states
+        run: |
+          if [ "${{ github.event.inputs.states }}" == "single" ]; then
+            echo 'states=["AL"]' >> $GITHUB_OUTPUT
+            echo "Using SINGLE state (AL only)"
+          elif [ "${{ github.event.inputs.states }}" == "test" ]; then
+            echo 'states=["AL", "CA", "FL"]' >> $GITHUB_OUTPUT
+            echo "Using TEST state set (3 states)"
+          else
+            echo 'states=["AL", "AR", "AZ", "CA", "CO", "FL", "GA", "IL", "IN", "KY", "LA", "MA", "MD", "MI", "MN", "MO", "MS", "NC", "NJ", "NV", "NY", "OH", "OK", "PA", "SC", "TN", "TX", "VA", "WA", "WI"]' >> $GITHUB_OUTPUT
+            echo "Using FULL state set (30 states) - WARNING: May OOM!"
+          fi
+
+  generate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        state: ${{ fromJson(needs.prepare.outputs.states) }}
+      fail-fast: true  # Stop immediately if OOM
+    steps:
+      - name: Check available memory
+        run: |
+          echo "=== MEMORY CHECK ==="
+          free -h || cat /proc/meminfo | head -5
+          echo ""
+          echo "=== DISK SPACE ==="
+          df -h .
+
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Download RAW simulation data from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "📥 Downloading RAW simulation data for ${{ matrix.state }}"
+          echo "⚠️  These are UNTRIMMED simsets (~850MB each, 1000 simulations)"
+
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.state }}
+
+          # Download raw files (different naming pattern)
+          gh release download ${{ github.event.inputs.simulation_release }} \
+            --repo ncsizemore/jheem-simulations \
+            --pattern "rw_final.ehe.state-1000_${{ matrix.state }}_*.Rdata" \
+            --dir ./tmp-download
+
+          echo "📦 Downloaded files:"
+          ls -lh ./tmp-download/
+
+          # Rename raw files to container's expected format
+          # Raw: rw_final.ehe.state-1000_AL_noint.Rdata -> base/AL_base.Rdata
+          mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_noint.Rdata" \
+            "simulations/ryan-white/base/${{ matrix.state }}_base.Rdata"
+
+          # Raw: rw_final.ehe.state-1000_AL_rw.end.26.Rdata -> prerun/AL/cessation.Rdata
+          mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.end.26.Rdata" \
+            "simulations/ryan-white/prerun/${{ matrix.state }}/cessation.Rdata"
+
+          # Raw: rw_final.ehe.state-1000_AL_rw.p.intr.26.Rdata -> prerun/AL/interruption.Rdata
+          mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.p.intr.26.Rdata" \
+            "simulations/ryan-white/prerun/${{ matrix.state }}/interruption.Rdata"
+
+          echo "✅ Renamed to container format:"
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.state }}/
+
+          echo ""
+          echo "📊 Total simulation data size:"
+          du -sh simulations/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate native data (MEMORY TEST)
+        run: |
+          echo "🧪 EXPERIMENTAL: Running batch mode on RAW simsets"
+          echo "⚠️  This may OOM - that's what we're testing!"
+          echo ""
+
+          mkdir -p output/${{ matrix.state }}
+
+          # Monitor memory during run
+          echo "Memory before container:"
+          free -h || cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable"
+
+          set +e
+          docker run --rm \
+            -v $(pwd)/simulations:/app/simulations:ro \
+            -v $(pwd)/output/${{ matrix.state }}:/output \
+            ${{ github.event.inputs.container_image }} \
+            batch \
+            --city ${{ matrix.state }} \
+            --scenarios ${{ env.SCENARIOS }} \
+            --outcomes ${{ env.OUTCOMES }} \
+            --statistics ${{ env.STATISTICS }} \
+            --facets "${{ env.FACETS }}" \
+            --output-dir /output \
+            --output-mode data
+          exit_code=$?
+          set -e
+
+          echo ""
+          echo "Memory after container:"
+          free -h || cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable"
+
+          if [ "$exit_code" -eq 137 ]; then
+            echo "❌ OOM KILLED (exit code 137)"
+            echo "Conclusion: Direct approach won't work on GitHub runners"
+            exit 1
+          fi
+
+          file_count=$(find output/${{ matrix.state }} -name "*.json" 2>/dev/null | wc -l)
+          echo "📊 Files generated: $file_count"
+
+          if [ "$file_count" -eq 0 ]; then
+            echo "❌ No files generated"
+            exit 1
+          fi
+
+          echo "✅ SUCCESS! Generated $file_count files without OOM"
+
+      - name: Inspect JSON output
+        run: |
+          echo "🔍 Inspecting generated JSON files..."
+          echo ""
+
+          # Check file sizes
+          echo "=== File sizes ==="
+          find output/${{ matrix.state }} -name "*.json" -exec ls -lh {} \;
+
+          # Check year range in one file
+          echo ""
+          echo "=== Year range in incidence data ==="
+          if [ -f "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" ]; then
+            # Extract min/max years
+            cat "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" | \
+              grep -oE '"year":[0-9]+' | \
+              sed 's/"year"://' | \
+              sort -n | \
+              uniq | \
+              head -5
+            echo "..."
+            cat "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" | \
+              grep -oE '"year":[0-9]+' | \
+              sed 's/"year"://' | \
+              sort -n | \
+              uniq | \
+              tail -5
+          else
+            echo "File not found at expected path, checking alternatives..."
+            find output -name "*.json" | head -1 | xargs cat | grep -oE '"year":[0-9]+' | sed 's/"year"://' | sort -n | uniq
+          fi
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 EXPERIMENTAL RUN COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "✅ Direct batch mode on raw simsets WORKED!"
+          echo ""
+          echo "Next steps:"
+          echo "1. Check if year range needs filtering"
+          echo "2. If years are wrong, add JSON filter to aggregation"
+          echo "3. If years are correct, this approach is viable!"
