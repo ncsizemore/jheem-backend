@@ -208,27 +208,25 @@ jobs:
           echo "=== File sizes ==="
           find output/${{ matrix.state }} -name "*.json" -exec ls -lh {} \;
 
-          # Check year range in one file
+          # Check year range using python (more reliable than grep)
           echo ""
-          echo "=== Year range in incidence data ==="
-          if [ -f "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" ]; then
-            # Extract min/max years
-            cat "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" | \
-              grep -oE '"year":[0-9]+' | \
-              sed 's/"year"://' | \
-              sort -n | \
-              uniq | \
-              head -5
-            echo "..."
-            cat "output/${{ matrix.state }}/${{ matrix.state }}/cessation/incidence_mean.and.interval_unfaceted.json" | \
-              grep -oE '"year":[0-9]+' | \
-              sed 's/"year"://' | \
-              sort -n | \
-              uniq | \
-              tail -5
+          echo "=== Year range in JSON files ==="
+          JSON_FILE=$(find output/${{ matrix.state }} -name "incidence*.json" | head -1)
+          if [ -n "$JSON_FILE" ]; then
+            echo "Checking: $JSON_FILE"
+            python3 -c "
+import json
+with open('$JSON_FILE') as f:
+    d = json.load(f)
+years = sorted(set(x['year'] for x in d['sim']))
+print(f'Min year: {min(years)}')
+print(f'Max year: {max(years)}')
+print(f'Total years: {len(years)}')
+print(f'All years: {years}')
+"
           else
-            echo "File not found at expected path, checking alternatives..."
-            find output -name "*.json" | head -1 | xargs cat | grep -oE '"year":[0-9]+' | sed 's/"year"://' | sort -n | uniq
+            echo "No incidence JSON file found"
+            find output -name "*.json"
           fi
 
       - name: Summary
