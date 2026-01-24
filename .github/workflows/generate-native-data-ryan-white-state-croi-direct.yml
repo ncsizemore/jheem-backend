@@ -214,16 +214,17 @@ jobs:
           JSON_FILE=$(find output/${{ matrix.state }} -name "incidence*.json" | head -1)
           if [ -n "$JSON_FILE" ]; then
             echo "Checking: $JSON_FILE"
-            python3 -c "
+            python3 << 'PYEOF'
 import json
-with open('$JSON_FILE') as f:
+import sys
+with open("'"$JSON_FILE"'") as f:
     d = json.load(f)
-years = sorted(set(x['year'] for x in d['sim']))
-print(f'Min year: {min(years)}')
-print(f'Max year: {max(years)}')
-print(f'Total years: {len(years)}')
-print(f'All years: {years}')
-"
+years = sorted(set(x["year"] for x in d["sim"]))
+print("Min year:", min(years))
+print("Max year:", max(years))
+print("Total years:", len(years))
+print("All years:", years)
+PYEOF
           else
             echo "No incidence JSON file found"
             find output -name "*.json"
