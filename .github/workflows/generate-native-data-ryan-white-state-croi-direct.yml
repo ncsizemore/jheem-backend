@@ -208,23 +208,13 @@ jobs:
           echo "=== File sizes ==="
           find output/${{ matrix.state }} -name "*.json" -exec ls -lh {} \;
 
-          # Check year range using python (more reliable than grep)
+          # Check year range using python
           echo ""
           echo "=== Year range in JSON files ==="
           JSON_FILE=$(find output/${{ matrix.state }} -name "incidence*.json" | head -1)
           if [ -n "$JSON_FILE" ]; then
             echo "Checking: $JSON_FILE"
-            python3 << 'PYEOF'
-import json
-import sys
-with open("'"$JSON_FILE"'") as f:
-    d = json.load(f)
-years = sorted(set(x["year"] for x in d["sim"]))
-print("Min year:", min(years))
-print("Max year:", max(years))
-print("Total years:", len(years))
-print("All years:", years)
-PYEOF
+            python3 -c "import json; d=json.load(open('$JSON_FILE')); years=sorted(set(x['year'] for x in d['sim'])); print('Min year:', min(years)); print('Max year:', max(years)); print('Total years:', len(years)); print('All years:', years)"
           else
             echo "No incidence JSON file found"
             find output -name "*.json"
