@@ -215,6 +215,26 @@ jobs:
           if [ -n "$JSON_FILE" ]; then
             echo "Checking: $JSON_FILE"
             python3 -c "import json; d=json.load(open('$JSON_FILE')); years=sorted(set(x['year'] for x in d['sim'])); print('Min year:', min(years)); print('Max year:', max(years)); print('Total years:', len(years)); print('All years:', years)"
+
+            echo ""
+            echo "=== Simset breakdown (critical check) ==="
+            python3 -c "
+          import json
+          d = json.load(open('$JSON_FILE'))
+          simsets = {}
+          for x in d['sim']:
+              s = x['simset']
+              if s not in simsets:
+                  simsets[s] = []
+              simsets[s].append(x['year'])
+          for s, years in sorted(simsets.items()):
+              years = sorted(set(years))
+              print(f'{s}: {min(years)}-{max(years)} ({len(years)} years)')
+              if s == 'Baseline' and max(years) >= 2030:
+                  print('  ✅ Baseline extends to 2030+ - DIRECT APPROACH IS VIABLE!')
+              elif s == 'Baseline' and max(years) < 2030:
+                  print('  ❌ Baseline stops at', max(years), '- would need filtering or different projection year')
+          "
           else
             echo "No incidence JSON file found"
             find output -name "*.json"
