@@ -1,15 +1,16 @@
 name: "[EXPERIMENTAL] Generate Native Data - Direct from Raw Simsets"
 
 # ===========================================
-# EXPERIMENTAL WORKFLOW
+# EXPERIMENTAL WORKFLOW - Full Pipeline Test
 # ===========================================
-# Tests whether we can skip the trimming step entirely by:
-# 1. Running batch mode directly on raw (1000-sim) simsets
-# 2. Letting the container extract statistics
-# 3. (Future) Filter JSON to desired year range if needed
+# Tests the complete pipeline using raw simsets:
+# 1. Download raw (1000-sim) simsets from GitHub Release
+# 2. Run container batch mode to extract statistics
+# 3. Aggregate into single state JSON
+# 4. Extract summaries
+# 5. (Optional) Upload to S3
 #
-# If this works without OOM, it's a simpler pipeline.
-# If it OOMs, we stick with the trimmed simset approach.
+# If this works, we can eliminate the 12-hour local trimming step!
 # ===========================================
 
 on:
@@ -21,9 +22,9 @@ on:
         default: 'single'
         type: choice
         options:
-          - single    # Just AL for testing
-          - test      # 3 states
-          - full      # All 30 states (risky - may OOM)
+          - single    # Just AL for quick test
+          - test      # 3 states (AL, CA, FL)
+          - full      # All 30 states
       simulation_release:
         description: 'Raw simulation release tag'
         required: true
@@ -39,19 +40,24 @@ on:
         required: true
         default: true
         type: boolean
+      max_parallel:
+        description: 'Maximum parallel state jobs'
+        required: true
+        default: '3'
+        type: string
 
 env:
-  # Minimal statistics for testing
-  STATISTICS: 'mean.and.interval'
+  # Full statistics
+  STATISTICS: 'mean.and.interval,median.and.interval'
 
-  # Start with just unfaceted to minimize memory
-  FACETS: 'none'
+  # All facets including multi-dimensional
+  FACETS: 'none,age,race,sex,risk,age+race,age+sex,age+risk,race+sex,race+risk,sex+risk,age+race+sex,age+race+risk,age+sex+risk,race+sex+risk,age+race+sex+risk'
 
-  # Key outcomes only
-  OUTCOMES: 'incidence,diagnosed.prevalence,suppression'
+  # All outcomes
+  OUTCOMES: 'incidence,diagnosed.prevalence,suppression,testing,prep.uptake,awareness,rw.clients,adap.clients,non.adap.clients,oahs.clients,adap.proportion,oahs.suppression,adap.suppression,new'
 
-  # CROI scenarios
-  SCENARIOS: 'cessation,interruption'
+  # All CROI scenarios (including conservative)
+  SCENARIOS: 'cessation,interruption,cessation_conservative,interruption_conservative'
 
 jobs:
   prepare:
@@ -70,7 +76,7 @@ jobs:
             echo "Using TEST state set (3 states)"
           else
             echo 'states=["AL", "AR", "AZ", "CA", "CO", "FL", "GA", "IL", "IN", "KY", "LA", "MA", "MD", "MI", "MN", "MO", "MS", "NC", "NJ", "NV", "NY", "OH", "OK", "PA", "SC", "TN", "TX", "VA", "WA", "WI"]' >> $GITHUB_OUTPUT
-            echo "Using FULL state set (30 states) - WARNING: May OOM!"
+            echo "Using FULL state set (30 states)"
           fi
 
   generate:
@@ -79,16 +85,9 @@ jobs:
     strategy:
       matrix:
         state: ${{ fromJson(needs.prepare.outputs.states) }}
-      fail-fast: true  # Stop immediately if OOM
+      max-parallel: ${{ fromJson(github.event.inputs.max_parallel) }}
+      fail-fast: false
     steps:
-      - name: Check available memory
-        run: |
-          echo "=== MEMORY CHECK ==="
-          free -h || cat /proc/meminfo | head -5
-          echo ""
-          echo "=== DISK SPACE ==="
-          df -h .
-
       - name: Checkout jheem-portal (for aggregation scripts)
         uses: actions/checkout@v4
         with:
@@ -104,6 +103,13 @@ jobs:
         working-directory: portal
         run: npm ci
 
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
       - name: Download RAW simulation data from GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
@@ -114,7 +120,7 @@ jobs:
           mkdir -p simulations/ryan-white/base
           mkdir -p simulations/ryan-white/prerun/${{ matrix.state }}
 
-          # Download raw files (different naming pattern)
+          # Download raw files
           gh release download ${{ github.event.inputs.simulation_release }} \
             --repo ncsizemore/jheem-simulations \
             --pattern "rw_final.ehe.state-1000_${{ matrix.state }}_*.Rdata" \
@@ -124,17 +130,20 @@ jobs:
           ls -lh ./tmp-download/
 
           # Rename raw files to container's expected format
-          # Raw: rw_final.ehe.state-1000_AL_noint.Rdata -> base/AL_base.Rdata
           mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_noint.Rdata" \
             "simulations/ryan-white/base/${{ matrix.state }}_base.Rdata"
 
-          # Raw: rw_final.ehe.state-1000_AL_rw.end.26.Rdata -> prerun/AL/cessation.Rdata
           mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.end.26.Rdata" \
             "simulations/ryan-white/prerun/${{ matrix.state }}/cessation.Rdata"
 
-          # Raw: rw_final.ehe.state-1000_AL_rw.p.intr.26.Rdata -> prerun/AL/interruption.Rdata
           mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.p.intr.26.Rdata" \
             "simulations/ryan-white/prerun/${{ matrix.state }}/interruption.Rdata"
+
+          mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.end.cons.26.Rdata" \
+            "simulations/ryan-white/prerun/${{ matrix.state }}/cessation_conservative.Rdata"
+
+          mv "./tmp-download/rw_final.ehe.state-1000_${{ matrix.state }}_rw.p.intr.cons.26.Rdata" \
+            "simulations/ryan-white/prerun/${{ matrix.state }}/interruption_conservative.Rdata"
 
           echo "✅ Renamed to container format:"
           ls -la simulations/ryan-white/base/
@@ -151,17 +160,14 @@ jobs:
           username: ${{ github.actor }}
           password: ${{ secrets.GITHUB_TOKEN }}
 
-      - name: Generate native data (MEMORY TEST)
+      - name: Generate native data
         run: |
-          echo "🧪 EXPERIMENTAL: Running batch mode on RAW simsets"
-          echo "⚠️  This may OOM - that's what we're testing!"
-          echo ""
+          echo "🏛️ Generating native data for ${{ matrix.state }} (DIRECT from raw simsets)"
 
           mkdir -p output/${{ matrix.state }}
 
-          # Monitor memory during run
           echo "Memory before container:"
-          free -h || cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable"
+          free -h
 
           set +e
           docker run --rm \
@@ -181,11 +187,10 @@ jobs:
 
           echo ""
           echo "Memory after container:"
-          free -h || cat /proc/meminfo | grep -E "MemTotal|MemFree|MemAvailable"
+          free -h
 
           if [ "$exit_code" -eq 137 ]; then
             echo "❌ OOM KILLED (exit code 137)"
-            echo "Conclusion: Direct approach won't work on GitHub runners"
             exit 1
           fi
 
@@ -197,59 +202,168 @@ jobs:
             exit 1
           fi
 
-          echo "✅ SUCCESS! Generated $file_count files without OOM"
+          echo "✅ Generated $file_count files"
 
-      - name: Inspect JSON output
+      - name: Aggregate state data
+        working-directory: portal
         run: |
-          echo "🔍 Inspecting generated JSON files..."
-          echo ""
+          echo "📊 Aggregating data for ${{ matrix.state }}..."
 
-          # Check file sizes
-          echo "=== File sizes ==="
-          find output/${{ matrix.state }} -name "*.json" -exec ls -lh {} \;
+          mkdir -p public/data
 
-          # Check year range using python
-          echo ""
-          echo "=== Year range in JSON files ==="
-          JSON_FILE=$(find output/${{ matrix.state }} -name "incidence*.json" | head -1)
-          if [ -n "$JSON_FILE" ]; then
-            echo "Checking: $JSON_FILE"
-            python3 -c "import json; d=json.load(open('$JSON_FILE')); years=sorted(set(x['year'] for x in d['sim'])); print('Min year:', min(years)); print('Max year:', max(years)); print('Total years:', len(years)); print('All years:', years)"
-
-            echo ""
-            echo "=== Simset breakdown (critical check) ==="
-            python3 -c "
-          import json
-          d = json.load(open('$JSON_FILE'))
-          simsets = {}
-          for x in d['sim']:
-              s = x['simset']
-              if s not in simsets:
-                  simsets[s] = []
-              simsets[s].append(x['year'])
-          for s, years in sorted(simsets.items()):
-              years = sorted(set(years))
-              print(f'{s}: {min(years)}-{max(years)} ({len(years)} years)')
-              if s == 'Baseline' and max(years) >= 2030:
-                  print('  ✅ Baseline extends to 2030+ - DIRECT APPROACH IS VIABLE!')
-              elif s == 'Baseline' and max(years) < 2030:
-                  print('  ❌ Baseline stops at', max(years), '- would need filtering or different projection year')
-          "
-          else
-            echo "No incidence JSON file found"
-            find output -name "*.json"
+          state_dir="../output/${{ matrix.state }}/${{ matrix.state }}"
+          if [ ! -d "$state_dir" ]; then
+            state_dir="../output/${{ matrix.state }}"
           fi
 
-      - name: Summary
+          echo "Using state directory: $state_dir"
+
+          npx tsx scripts/aggregate-city-data.ts "$state_dir" "public/data/${{ matrix.state }}.json"
+
+          if [ -f "public/data/${{ matrix.state }}.json" ]; then
+            size=$(ls -lh "public/data/${{ matrix.state }}.json" | awk '{print $5}')
+            echo "✅ Created ${{ matrix.state }}.json ($size)"
+          else
+            echo "❌ Failed to create ${{ matrix.state }}.json"
+            exit 1
+          fi
+
+      - name: Extract state summary
+        working-directory: portal
+        run: |
+          echo "📋 Extracting summary for ${{ matrix.state }}..."
+
+          npx tsx scripts/generate-state-summaries.ts --single ${{ matrix.state }} "public/data/${{ matrix.state }}.json"
+
+          mv "${{ matrix.state }}-summary.json" "public/data/${{ matrix.state }}-summary.json"
+
+          echo "✅ Summary extracted:"
+          cat "public/data/${{ matrix.state }}-summary.json"
+
+      - name: Upload summary artifact
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.state }}
+          path: portal/public/data/${{ matrix.state }}-summary.json
+          retention-days: 1
+
+      - name: Upload to S3
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading ${{ matrix.state }}.json to S3..."
+
+          gzip -c "public/data/${{ matrix.state }}.json" > "public/data/${{ matrix.state }}.json.gz"
+
+          aws s3 cp "public/data/${{ matrix.state }}.json.gz" \
+            "s3://jheem-data-production/portal/ryan-white-state-croi/${{ matrix.state }}.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo "✅ Uploaded to S3"
+
+      - name: Skip S3 upload (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
+        working-directory: portal
+        run: |
+          echo "🔸 DRY RUN - Skipping S3 upload"
+          echo "📊 Would upload: public/data/${{ matrix.state }}.json"
+          ls -lh "public/data/${{ matrix.state }}.json"
+
+  finalize:
+    needs: [prepare, generate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jheem-portal
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Configure AWS credentials
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Download summary artifacts
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: summaries
+          merge-multiple: true
+
+      - name: List downloaded summaries
+        run: |
+          echo "📥 Downloaded summary artifacts:"
+          ls -lh summaries/
+          echo ""
+          echo "Contents:"
+          for f in summaries/*.json; do
+            echo "=== $f ==="
+            cat "$f"
+            echo ""
+          done
+
+      - name: Combine state summaries
+        working-directory: portal
+        run: |
+          echo "📋 Combining state summaries..."
+
+          summary_files=$(find ../summaries -name "*-summary.json" | sort | tr '\n' ' ')
+          echo "Found summaries: $summary_files"
+
+          npx tsx scripts/generate-state-summaries.ts --combine $summary_files
+
+          if [ -f "public/data/state-summaries.json" ]; then
+            echo "✅ Combined summaries:"
+            cat public/data/state-summaries.json
+          else
+            echo "❌ Summaries file not created"
+            exit 1
+          fi
+
+      - name: Upload state summaries to S3
+        if: ${{ github.event.inputs.dry_run != 'true' }}
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading state-summaries.json to S3..."
+
+          gzip -c public/data/state-summaries.json > public/data/state-summaries.json.gz
+          aws s3 cp public/data/state-summaries.json.gz \
+            "s3://jheem-data-production/portal/ryan-white-state-croi/state-summaries.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo ""
+          echo "=========================================="
+          echo "📊 DIRECT PIPELINE TEST COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "🌐 Files available at:"
+          echo "   https://d320iym4dtm9lj.cloudfront.net/ryan-white-state-croi/{STATE}.json"
+
+      - name: Summary (dry run)
+        if: ${{ github.event.inputs.dry_run == 'true' }}
         run: |
           echo ""
           echo "=========================================="
-          echo "📊 EXPERIMENTAL RUN COMPLETE"
+          echo "📊 DIRECT PIPELINE TEST COMPLETE (DRY RUN)"
           echo "=========================================="
           echo ""
-          echo "✅ Direct batch mode on raw simsets WORKED!"
+          echo "✅ Full pipeline executed successfully!"
+          echo "✅ Raw simsets → JSON extraction → Aggregation → Summary"
           echo ""
-          echo "Next steps:"
-          echo "1. Check if year range needs filtering"
-          echo "2. If years are wrong, add JSON filter to aggregation"
-          echo "3. If years are correct, this approach is viable!"
+          echo "This proves the direct approach works end-to-end."
+          echo "No 12-hour local trimming step needed!"
