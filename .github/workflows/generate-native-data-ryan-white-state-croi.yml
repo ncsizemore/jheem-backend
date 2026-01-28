@@ -1,16 +1,14 @@
-name: "[EXPERIMENTAL] Generate Native Data - Direct from Raw Simsets"
+name: "Generate Native Data - Ryan White State (CROI 30-state)"
 
 # ===========================================
-# EXPERIMENTAL WORKFLOW - Full Pipeline Test
+# CROI 30-State Data Extraction Workflow
 # ===========================================
-# Tests the complete pipeline using raw simsets:
-# 1. Download raw (1000-sim) simsets from GitHub Release
+# Extracts visualization data from raw simsets:
+# 1. Download raw (1000-sim) simsets from GitHub Release v2.0.0
 # 2. Run container batch mode to extract statistics
 # 3. Aggregate into single state JSON
-# 4. Extract summaries
-# 5. (Optional) Upload to S3
-#
-# If this works, we can eliminate the 12-hour local trimming step!
+# 4. Extract summaries for choropleth
+# 5. Upload to S3/CloudFront
 # ===========================================
 
 on:
