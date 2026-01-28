@@ -122,16 +122,20 @@ This session focused on optimizing cloud costs for the JHEEM data generation pip
   - After migration: redirect to `/ryan-white/state/explorer`
 - MSA paper URL: TBD (need to check paper)
 
-**Proposed route structure (Option C):**
+**Route Structure (Option C - DECIDED):**
 - `/ryan-white/msa/explorer` → MSA marker map
 - `/ryan-white/state/explorer` → State choropleth map
 - `/ryan-white/` → Landing page for both (refactored)
+
+*Note: Option C was selected as the final route structure. Options A and B are not documented here as they were not chosen.*
 
 **Choropleth prototype:**
 - Created `StateMapSample.tsx` with synthetic data
 - Route: `/ryan-white/explorer/state` (temporary for testing)
 - Uses GeoJSON fill layers with data-driven coloring
 - Matches MSA explorer interaction patterns (hover cards, click to explore)
+
+*Note: This prototype is intentionally temporary scaffolding for cross-machine development. It will either be promoted to a full implementation or removed once the state choropleth is finalized.*
 
 ## Files Created/Modified This Session
 
