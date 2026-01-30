@@ -1,0 +1,406 @@
+{
+  "$schema": "./models.schema.json",
+  "_meta": {
+    "version": "1.0.0",
+    "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
+    "lastUpdated": "2026-01-30"
+  },
+
+  "ryan-white-msa": {
+    "displayName": "Ryan White MSA Explorer",
+    "shortName": "Ryan White (Cities)",
+    "description": "City-level analysis of Ryan White funding scenarios across 31 Metropolitan Statistical Areas",
+
+    "geographyType": "city",
+    "geographyLabel": "City",
+    "geographyLabelPlural": "Cities",
+
+    "locations": {
+      "test": ["C.12580", "C.12060", "C.16980"],
+      "full": [
+        "C.12060", "C.12420", "C.12580", "C.12940", "C.14460", "C.16740", "C.16980",
+        "C.17460", "C.18140", "C.19100", "C.19820", "C.26420", "C.26900", "C.27260",
+        "C.29820", "C.31080", "C.32820", "C.33100", "C.35380", "C.35620", "C.36740",
+        "C.37980", "C.38060", "C.40140", "C.40900", "C.41700", "C.41740", "C.41860",
+        "C.42660", "C.45300", "C.47900"
+      ]
+    },
+
+    "scenarios": [
+      {
+        "id": "cessation",
+        "label": "Cessation",
+        "description": "Permanent end to Ryan White funding"
+      },
+      {
+        "id": "brief_interruption",
+        "label": "Brief Interruption",
+        "description": "18-month funding gap, then services resume"
+      },
+      {
+        "id": "prolonged_interruption",
+        "label": "Prolonged Interruption",
+        "description": "42-month funding gap, then services resume"
+      }
+    ],
+
+    "outcomes": [
+      "incidence",
+      "diagnosed.prevalence",
+      "suppression",
+      "testing",
+      "prep.uptake",
+      "awareness",
+      "rw.clients",
+      "adap.clients",
+      "non.adap.clients",
+      "oahs.clients",
+      "adap.proportion",
+      "oahs.suppression",
+      "adap.suppression",
+      "new"
+    ],
+
+    "facets": [
+      "none",
+      "age", "race", "sex", "risk",
+      "age+race", "age+sex", "age+risk", "race+sex", "race+risk", "sex+risk",
+      "age+race+sex", "age+race+risk", "age+sex+risk", "race+sex+risk",
+      "age+race+sex+risk"
+    ],
+
+    "facetDimensions": ["age", "sex", "race", "risk"],
+
+    "statistics": {
+      "base": ["mean.and.interval", "median.and.interval"],
+      "all": ["mean.and.interval", "median.and.interval", "individual.simulation"]
+    },
+
+    "container": {
+      "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
+      "version": "latest",
+      "repository": "ncsizemore/jheem-container-minimal"
+    },
+
+    "dataSource": {
+      "type": "S3",
+      "bucket": "jheem-data-production",
+      "path": "simulations/ryan-white/"
+    },
+
+    "output": {
+      "s3Bucket": "jheem-data-production",
+      "s3Path": "portal/ryan-white",
+      "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white",
+      "summaryFile": "city-summaries.json"
+    },
+
+    "defaults": {
+      "outcome": "incidence",
+      "statistic": "mean.and.interval"
+    },
+
+    "map": {
+      "center": [-96.5, 38.5],
+      "zoom": 4.1
+    },
+
+    "interventionStartYear": 2025,
+
+    "workflow": {
+      "maxParallel": 10,
+      "includeIndividualSimulation": false
+    }
+  },
+
+  "ryan-white-state-ajph": {
+    "displayName": "Ryan White State Analysis (AJPH)",
+    "shortName": "AJPH (11 States)",
+    "description": "State-level analysis from the 2025 AJPH paper, covering 11 states",
+
+    "geographyType": "state",
+    "geographyLabel": "State",
+    "geographyLabelPlural": "States",
+
+    "locations": {
+      "test": ["AL", "CA", "FL"],
+      "full": ["AL", "CA", "FL", "GA", "IL", "LA", "MO", "MS", "NY", "TX", "WI"]
+    },
+
+    "scenarios": [
+      {
+        "id": "cessation",
+        "label": "Cessation",
+        "description": "Permanent end to Ryan White funding"
+      },
+      {
+        "id": "brief_interruption",
+        "label": "Brief Interruption",
+        "description": "18-month funding gap, then services resume"
+      },
+      {
+        "id": "prolonged_interruption",
+        "label": "Prolonged Interruption",
+        "description": "42-month funding gap, then services resume"
+      }
+    ],
+
+    "outcomes": [
+      "incidence",
+      "diagnosed.prevalence",
+      "suppression",
+      "testing",
+      "prep.uptake",
+      "awareness",
+      "rw.clients",
+      "adap.clients",
+      "non.adap.clients",
+      "oahs.clients",
+      "adap.proportion",
+      "oahs.suppression",
+      "adap.suppression",
+      "new"
+    ],
+
+    "facets": [
+      "none",
+      "age", "race", "sex", "risk",
+      "age+race", "age+sex", "age+risk", "race+sex", "race+risk", "sex+risk",
+      "age+race+sex", "age+race+risk", "age+sex+risk", "race+sex+risk",
+      "age+race+sex+risk"
+    ],
+
+    "facetDimensions": ["age", "sex", "race", "risk"],
+
+    "statistics": {
+      "base": ["mean.and.interval", "median.and.interval"],
+      "all": ["mean.and.interval", "median.and.interval", "individual.simulation"]
+    },
+
+    "container": {
+      "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
+      "version": "latest",
+      "repository": "ncsizemore/jheem-container-minimal"
+    },
+
+    "dataSource": {
+      "type": "GitHub-Release",
+      "repository": "ncsizemore/jheem-simulations",
+      "release": "ryan-white-state-v1.0.0",
+      "filePattern": "{STATE}_*.Rdata"
+    },
+
+    "output": {
+      "s3Bucket": "jheem-data-production",
+      "s3Path": "portal/ryan-white-state",
+      "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white-state",
+      "summaryFile": "state-summaries.json"
+    },
+
+    "defaults": {
+      "outcome": "incidence",
+      "statistic": "mean.and.interval"
+    },
+
+    "map": {
+      "center": [-96.5, 38.5],
+      "zoom": 4.1
+    },
+
+    "interventionStartYear": 2025,
+
+    "workflow": {
+      "maxParallel": 5,
+      "includeIndividualSimulation": false
+    }
+  },
+
+  "ryan-white-state-croi": {
+    "displayName": "Ryan White State Analysis (CROI)",
+    "shortName": "CROI (30 States)",
+    "description": "State-level analysis for CROI 2026 conference, covering 30 states with conservative scenarios",
+
+    "geographyType": "state",
+    "geographyLabel": "State",
+    "geographyLabelPlural": "States",
+
+    "locations": {
+      "single": ["AL"],
+      "test": ["AL", "CA", "FL"],
+      "full": [
+        "AL", "AR", "AZ", "CA", "CO", "FL", "GA", "IL", "IN", "KY",
+        "LA", "MA", "MD", "MI", "MN", "MO", "MS", "NC", "NJ", "NV",
+        "NY", "OH", "OK", "PA", "SC", "TN", "TX", "VA", "WA", "WI"
+      ]
+    },
+
+    "scenarios": [
+      {
+        "id": "cessation",
+        "label": "Cessation",
+        "description": "Permanent end to Ryan White funding starting 2026"
+      },
+      {
+        "id": "interruption",
+        "label": "Interruption",
+        "description": "2.5-year funding gap (2026-2028), then services resume"
+      },
+      {
+        "id": "cessation_conservative",
+        "label": "Cessation (Conservative)",
+        "description": "Permanent cessation with conservative impact assumptions"
+      },
+      {
+        "id": "interruption_conservative",
+        "label": "Interruption (Conservative)",
+        "description": "2.5-year gap with conservative impact assumptions"
+      }
+    ],
+
+    "outcomes": [
+      "incidence",
+      "diagnosed.prevalence",
+      "suppression",
+      "testing",
+      "prep.uptake",
+      "awareness",
+      "rw.clients",
+      "adap.clients",
+      "non.adap.clients",
+      "oahs.clients",
+      "adap.proportion",
+      "oahs.suppression",
+      "adap.suppression",
+      "new"
+    ],
+
+    "facets": [
+      "none",
+      "age", "race", "sex", "risk",
+      "age+race", "age+sex", "age+risk", "race+sex", "race+risk", "sex+risk",
+      "age+race+sex", "age+race+risk", "age+sex+risk", "race+sex+risk",
+      "age+race+sex+risk"
+    ],
+
+    "facetDimensions": ["age", "sex", "race", "risk"],
+
+    "statistics": {
+      "base": ["mean.and.interval", "median.and.interval"],
+      "all": ["mean.and.interval", "median.and.interval"]
+    },
+
+    "container": {
+      "image": "ghcr.io/ncsizemore/jheem-ryan-white-croi",
+      "version": "latest",
+      "repository": "ncsizemore/jheem-ryan-white-croi-container"
+    },
+
+    "dataSource": {
+      "type": "GitHub-Release",
+      "repository": "ncsizemore/jheem-simulations",
+      "release": "ryan-white-state-v2.0.0",
+      "filePattern": "rw_final.ehe.state-1000_{STATE}_*.Rdata"
+    },
+
+    "output": {
+      "s3Bucket": "jheem-data-production",
+      "s3Path": "portal/ryan-white-state-croi",
+      "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white-state-croi",
+      "summaryFile": "state-summaries.json"
+    },
+
+    "defaults": {
+      "outcome": "incidence",
+      "statistic": "mean.and.interval"
+    },
+
+    "map": {
+      "center": [-96.5, 38.5],
+      "zoom": 4.1
+    },
+
+    "interventionStartYear": 2026,
+
+    "workflow": {
+      "maxParallel": 3,
+      "includeIndividualSimulation": false
+    }
+  },
+
+  "cdc-testing": {
+    "_status": "placeholder",
+    "displayName": "CDC Testing Model Explorer",
+    "shortName": "CDC Testing",
+    "description": "CDC HIV testing intervention scenarios - configuration pending",
+
+    "geographyType": "state",
+    "geographyLabel": "State",
+    "geographyLabelPlural": "States",
+
+    "locations": {
+      "test": [],
+      "full": []
+    },
+
+    "scenarios": [
+      {
+        "id": "baseline",
+        "label": "Baseline",
+        "description": "Current testing levels continue"
+      },
+      {
+        "id": "increased_testing",
+        "label": "Increased Testing",
+        "description": "Expanded testing program"
+      }
+    ],
+
+    "outcomes": [],
+
+    "facets": ["none"],
+
+    "facetDimensions": ["age", "sex", "race", "risk"],
+
+    "statistics": {
+      "base": ["mean.and.interval", "median.and.interval"],
+      "all": ["mean.and.interval", "median.and.interval"]
+    },
+
+    "container": {
+      "image": "",
+      "version": "",
+      "repository": ""
+    },
+
+    "dataSource": {
+      "type": "GitHub-Release",
+      "repository": "",
+      "release": "",
+      "filePattern": ""
+    },
+
+    "output": {
+      "s3Bucket": "jheem-data-production",
+      "s3Path": "portal/cdc-testing",
+      "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/cdc-testing",
+      "summaryFile": "state-summaries.json"
+    },
+
+    "defaults": {
+      "outcome": "diagnoses",
+      "statistic": "mean.and.interval"
+    },
+
+    "map": {
+      "center": [-96.5, 38.5],
+      "zoom": 4.1
+    },
+
+    "interventionStartYear": 2025,
+
+    "workflow": {
+      "maxParallel": 5,
+      "includeIndividualSimulation": false
+    }
+  }
+}
