@@ -78,7 +78,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "latest",
+      "version": "v1.0.0",
       "repository": "ncsizemore/jheem-container-minimal"
     },
 
@@ -179,7 +179,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "latest",
+      "version": "v1.0.0",
       "repository": "ncsizemore/jheem-container-minimal"
     },
 
@@ -291,7 +291,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-croi",
-      "version": "latest",
+      "version": "v1.0.0",
       "repository": "ncsizemore/jheem-ryan-white-croi-container"
     },
 
