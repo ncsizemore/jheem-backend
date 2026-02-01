@@ -1,0 +1,471 @@
+# =============================================================================
+# Reusable Workflow Template: Generate Native Plot Data
+# =============================================================================
+# This template handles data generation for any model defined in models.json.
+# It's called by thin wrapper workflows (generate-msa.yml, generate-ajph.yml, etc.)
+#
+# Features:
+# - Reads configuration from .github/config/models.json
+# - Supports both S3 and GitHub Release data sources
+# - Parallel per-location processing with matrix strategy
+# - Summary generation via artifacts (state) or S3 download (city)
+# =============================================================================
+
+name: _Generate Data Template
+
+on:
+  workflow_call:
+    inputs:
+      model_id:
+        description: 'Model ID from models.json (e.g., ryan-white-msa)'
+        required: true
+        type: string
+      location_set:
+        description: 'Location set to use (test, full, or single)'
+        required: true
+        type: string
+        default: 'test'
+      dry_run:
+        description: 'Skip S3 uploads (for testing)'
+        required: false
+        type: boolean
+        default: true
+      max_parallel:
+        description: 'Maximum parallel jobs'
+        required: false
+        type: string
+        default: '5'
+      include_individual_simulation:
+        description: 'Include individual simulation statistic'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  # ===========================================================================
+  # Phase 1: Load configuration and prepare location list
+  # ===========================================================================
+  prepare:
+    runs-on: ubuntu-latest
+    outputs:
+      locations: ${{ steps.config.outputs.locations }}
+      scenarios: ${{ steps.config.outputs.scenarios }}
+      outcomes: ${{ steps.config.outputs.outcomes }}
+      facets: ${{ steps.config.outputs.facets }}
+      statistics: ${{ steps.config.outputs.statistics }}
+      container_image: ${{ steps.config.outputs.container_image }}
+      data_source_type: ${{ steps.config.outputs.data_source_type }}
+      data_source_release: ${{ steps.config.outputs.data_source_release }}
+      data_source_pattern: ${{ steps.config.outputs.data_source_pattern }}
+      s3_path: ${{ steps.config.outputs.s3_path }}
+      s3_bucket: ${{ steps.config.outputs.s3_bucket }}
+      geography_type: ${{ steps.config.outputs.geography_type }}
+      summary_file: ${{ steps.config.outputs.summary_file }}
+    steps:
+      - name: Checkout jheem-backend (for config)
+        uses: actions/checkout@v4
+
+      - name: Load model configuration
+        id: config
+        run: |
+          CONFIG_FILE=".github/config/models.json"
+          MODEL_ID="${{ inputs.model_id }}"
+          LOCATION_SET="${{ inputs.location_set }}"
+
+          echo "📋 Loading configuration for model: $MODEL_ID"
+          echo "📍 Location set: $LOCATION_SET"
+
+          # Extract locations
+          LOCATIONS=$(jq -c ".\"$MODEL_ID\".locations.$LOCATION_SET" $CONFIG_FILE)
+          echo "locations=$LOCATIONS" >> $GITHUB_OUTPUT
+          echo "Locations: $LOCATIONS"
+
+          # Extract scenarios as comma-separated
+          SCENARIOS=$(jq -r ".\"$MODEL_ID\".scenarios | map(.id) | join(\",\")" $CONFIG_FILE)
+          echo "scenarios=$SCENARIOS" >> $GITHUB_OUTPUT
+          echo "Scenarios: $SCENARIOS"
+
+          # Extract outcomes as comma-separated
+          OUTCOMES=$(jq -r ".\"$MODEL_ID\".outcomes | join(\",\")" $CONFIG_FILE)
+          echo "outcomes=$OUTCOMES" >> $GITHUB_OUTPUT
+          echo "Outcomes: $OUTCOMES"
+
+          # Extract facets as comma-separated
+          FACETS=$(jq -r ".\"$MODEL_ID\".facets | join(\",\")" $CONFIG_FILE)
+          echo "facets=$FACETS" >> $GITHUB_OUTPUT
+          echo "Facets: $FACETS"
+
+          # Extract statistics based on include_individual_simulation
+          if [ "${{ inputs.include_individual_simulation }}" == "true" ]; then
+            STATISTICS=$(jq -r ".\"$MODEL_ID\".statistics.all | join(\",\")" $CONFIG_FILE)
+          else
+            STATISTICS=$(jq -r ".\"$MODEL_ID\".statistics.base | join(\",\")" $CONFIG_FILE)
+          fi
+          echo "statistics=$STATISTICS" >> $GITHUB_OUTPUT
+          echo "Statistics: $STATISTICS"
+
+          # Extract container image with version
+          CONTAINER_IMAGE=$(jq -r ".\"$MODEL_ID\".container.image + \":\" + .\"$MODEL_ID\".container.version" $CONFIG_FILE)
+          echo "container_image=$CONTAINER_IMAGE" >> $GITHUB_OUTPUT
+          echo "Container: $CONTAINER_IMAGE"
+
+          # Extract data source info
+          DATA_SOURCE_TYPE=$(jq -r ".\"$MODEL_ID\".dataSource.type" $CONFIG_FILE)
+          echo "data_source_type=$DATA_SOURCE_TYPE" >> $GITHUB_OUTPUT
+          echo "Data source type: $DATA_SOURCE_TYPE"
+
+          if [ "$DATA_SOURCE_TYPE" == "GitHub-Release" ]; then
+            DATA_SOURCE_RELEASE=$(jq -r ".\"$MODEL_ID\".dataSource.release" $CONFIG_FILE)
+            DATA_SOURCE_PATTERN=$(jq -r ".\"$MODEL_ID\".dataSource.filePattern // empty" $CONFIG_FILE)
+            DATA_SOURCE_REPO=$(jq -r ".\"$MODEL_ID\".dataSource.repository" $CONFIG_FILE)
+            echo "data_source_release=$DATA_SOURCE_RELEASE" >> $GITHUB_OUTPUT
+            echo "data_source_pattern=$DATA_SOURCE_PATTERN" >> $GITHUB_OUTPUT
+            echo "data_source_repo=$DATA_SOURCE_REPO" >> $GITHUB_OUTPUT
+            echo "Release: $DATA_SOURCE_RELEASE"
+          fi
+
+          # Extract output paths
+          S3_BUCKET=$(jq -r ".\"$MODEL_ID\".output.s3Bucket" $CONFIG_FILE)
+          S3_PATH=$(jq -r ".\"$MODEL_ID\".output.s3Path" $CONFIG_FILE)
+          SUMMARY_FILE=$(jq -r ".\"$MODEL_ID\".output.summaryFile" $CONFIG_FILE)
+          echo "s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          echo "s3_path=$S3_PATH" >> $GITHUB_OUTPUT
+          echo "summary_file=$SUMMARY_FILE" >> $GITHUB_OUTPUT
+          echo "S3 output: s3://$S3_BUCKET/$S3_PATH"
+
+          # Extract geography type
+          GEOGRAPHY_TYPE=$(jq -r ".\"$MODEL_ID\".geographyType" $CONFIG_FILE)
+          echo "geography_type=$GEOGRAPHY_TYPE" >> $GITHUB_OUTPUT
+          echo "Geography: $GEOGRAPHY_TYPE"
+
+  # ===========================================================================
+  # Phase 2: Generate, aggregate, and upload per location
+  # ===========================================================================
+  generate:
+    needs: prepare
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        location: ${{ fromJson(needs.prepare.outputs.locations) }}
+      max-parallel: ${{ fromJson(inputs.max_parallel) }}
+      fail-fast: false
+    steps:
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Configure AWS credentials
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # --- Download from S3 (for MSA cities) ---
+      - name: Download simulation data from S3
+        if: needs.prepare.outputs.data_source_type == 'S3'
+        run: |
+          echo "📥 Downloading simulation data for ${{ matrix.location }} from S3"
+
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.location }}
+
+          aws s3 cp s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/ryan-white/base/${{ matrix.location }}_base.Rdata \
+            simulations/ryan-white/base/${{ matrix.location }}_base.Rdata
+
+          aws s3 sync s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/ryan-white/prerun/${{ matrix.location }}/ \
+            simulations/ryan-white/prerun/${{ matrix.location }}/
+
+          echo "✅ Downloaded simulation data"
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.location }}/
+
+      # --- Download from GitHub Release (for state-level) ---
+      - name: Download simulation data from GitHub Release
+        if: needs.prepare.outputs.data_source_type == 'GitHub-Release'
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          echo "📥 Downloading simulation data for ${{ matrix.location }} from release ${{ needs.prepare.outputs.data_source_release }}"
+
+          mkdir -p simulations/ryan-white/base
+          mkdir -p simulations/ryan-white/prerun/${{ matrix.location }}
+          mkdir -p tmp-download
+
+          # Determine file pattern based on model
+          PATTERN="${{ needs.prepare.outputs.data_source_pattern }}"
+          if [ -z "$PATTERN" ]; then
+            # Default pattern for AJPH-style releases
+            PATTERN="${{ matrix.location }}_*.Rdata"
+          else
+            # Replace {STATE} placeholder
+            PATTERN=$(echo "$PATTERN" | sed "s/{STATE}/${{ matrix.location }}/g")
+          fi
+
+          echo "Using pattern: $PATTERN"
+
+          # Download files
+          gh release download ${{ needs.prepare.outputs.data_source_release }} \
+            --repo ncsizemore/jheem-simulations \
+            --pattern "$PATTERN" \
+            --dir ./tmp-download || true
+
+          echo "📦 Downloaded files:"
+          ls -lh ./tmp-download/
+
+          # Rename files to container's expected format
+          # Handle both AJPH format (STATE_scenario.Rdata) and CROI format (prefix_STATE_scenario.Rdata)
+          for f in ./tmp-download/*.Rdata; do
+            [ -f "$f" ] || continue
+            filename=$(basename "$f")
+
+            # Extract scenario from filename
+            if [[ "$filename" == *"_base.Rdata" ]] || [[ "$filename" == *"_noint.Rdata" ]]; then
+              mv "$f" "simulations/ryan-white/base/${{ matrix.location }}_base.Rdata"
+            elif [[ "$filename" == *"cessation"* ]] && [[ "$filename" != *"conservative"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/cessation.Rdata"
+            elif [[ "$filename" == *"brief_interruption"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/brief_interruption.Rdata"
+            elif [[ "$filename" == *"prolonged_interruption"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/prolonged_interruption.Rdata"
+            elif [[ "$filename" == *"interruption"* ]] && [[ "$filename" != *"conservative"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/interruption.Rdata"
+            elif [[ "$filename" == *"cessation_conservative"* ]] || [[ "$filename" == *"end.cons"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/cessation_conservative.Rdata"
+            elif [[ "$filename" == *"interruption_conservative"* ]] || [[ "$filename" == *"intr.cons"* ]]; then
+              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/interruption_conservative.Rdata"
+            else
+              echo "⚠️ Unknown file pattern: $filename"
+            fi
+          done
+
+          echo "✅ Organized simulation data:"
+          ls -la simulations/ryan-white/base/
+          ls -la simulations/ryan-white/prerun/${{ matrix.location }}/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Generate native data
+        run: |
+          echo "🔄 Generating native data for ${{ matrix.location }}"
+
+          mkdir -p output/${{ matrix.location }}
+
+          set +e
+          docker run --rm \
+            -v $(pwd)/simulations:/app/simulations:ro \
+            -v $(pwd)/output/${{ matrix.location }}:/output \
+            ${{ needs.prepare.outputs.container_image }} \
+            batch \
+            --city ${{ matrix.location }} \
+            --scenarios ${{ needs.prepare.outputs.scenarios }} \
+            --outcomes ${{ needs.prepare.outputs.outcomes }} \
+            --statistics ${{ needs.prepare.outputs.statistics }} \
+            --facets "${{ needs.prepare.outputs.facets }}" \
+            --output-dir /output \
+            --output-mode data
+          exit_code=$?
+          set -e
+
+          file_count=$(find output/${{ matrix.location }} -name "*.json" 2>/dev/null | wc -l)
+          echo "📊 Files generated: $file_count"
+
+          if [ "$file_count" -eq 0 ]; then
+            echo "❌ No files generated"
+            exit 1
+          fi
+
+          if [ "$exit_code" -ne 0 ]; then
+            echo "⚠️ Container exited with code $exit_code (expected - some outcome/facet combos are invalid)"
+          fi
+          echo "✅ Generated $file_count files"
+
+      - name: Aggregate location data
+        working-directory: portal
+        run: |
+          echo "📊 Aggregating data for ${{ matrix.location }}..."
+
+          mkdir -p public/data
+
+          location_dir="../output/${{ matrix.location }}/${{ matrix.location }}"
+          if [ ! -d "$location_dir" ]; then
+            location_dir="../output/${{ matrix.location }}"
+          fi
+
+          npx tsx scripts/aggregate-city-data.ts "$location_dir" "public/data/${{ matrix.location }}.json"
+
+          if [ -f "public/data/${{ matrix.location }}.json" ]; then
+            size=$(ls -lh "public/data/${{ matrix.location }}.json" | awk '{print $5}')
+            echo "✅ Created ${{ matrix.location }}.json ($size)"
+          else
+            echo "❌ Failed to create ${{ matrix.location }}.json"
+            exit 1
+          fi
+
+      # --- Extract summary for state-level (artifact-based) ---
+      - name: Extract location summary
+        if: needs.prepare.outputs.geography_type == 'state'
+        working-directory: portal
+        run: |
+          echo "📋 Extracting summary for ${{ matrix.location }}..."
+          npx tsx scripts/generate-state-summaries.ts --single ${{ matrix.location }} "public/data/${{ matrix.location }}.json"
+          mv "${{ matrix.location }}-summary.json" "public/data/${{ matrix.location }}-summary.json"
+          echo "✅ Summary extracted"
+
+      - name: Upload summary artifact
+        if: needs.prepare.outputs.geography_type == 'state'
+        uses: actions/upload-artifact@v4
+        with:
+          name: summary-${{ matrix.location }}
+          path: portal/public/data/${{ matrix.location }}-summary.json
+          retention-days: 1
+
+      - name: Upload to S3
+        if: inputs.dry_run != true
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading ${{ matrix.location }}.json to S3..."
+
+          gzip -c "public/data/${{ matrix.location }}.json" > "public/data/${{ matrix.location }}.json.gz"
+
+          aws s3 cp "public/data/${{ matrix.location }}.json.gz" \
+            "s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/${{ matrix.location }}.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo "✅ Uploaded to S3"
+
+      - name: Skip S3 upload (dry run)
+        if: inputs.dry_run == true
+        run: |
+          echo "🔸 DRY RUN - Skipping S3 upload"
+          echo "📊 Would upload: ${{ matrix.location }}.json to s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/"
+
+  # ===========================================================================
+  # Phase 3: Finalize - Generate and upload summaries
+  # ===========================================================================
+  finalize:
+    needs: [prepare, generate]
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jheem-portal
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Configure AWS credentials
+        if: inputs.dry_run != true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      # --- City summary generation (download from S3) ---
+      - name: Download and generate city summaries
+        if: needs.prepare.outputs.geography_type == 'city' && inputs.dry_run != true
+        working-directory: portal
+        run: |
+          echo "📥 Downloading aggregated files from S3..."
+          mkdir -p public/data
+
+          aws s3 sync s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/ public/data/ \
+            --exclude "*" \
+            --include "C.*.json"
+
+          echo "📦 Decompressing files..."
+          for f in public/data/C.*.json; do
+            if file "$f" | grep -q "gzip compressed"; then
+              gunzip -c "$f" > "$f.tmp" && mv "$f.tmp" "$f"
+            fi
+          done
+
+          echo "📋 Generating city summaries..."
+          npx tsx scripts/generate-city-summaries.ts
+
+          echo "☁️ Uploading ${{ needs.prepare.outputs.summary_file }}..."
+          gzip -c "public/data/${{ needs.prepare.outputs.summary_file }}" > "public/data/${{ needs.prepare.outputs.summary_file }}.gz"
+          aws s3 cp "public/data/${{ needs.prepare.outputs.summary_file }}.gz" \
+            "s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/${{ needs.prepare.outputs.summary_file }}" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+      # --- State summary generation (combine artifacts) ---
+      - name: Download summary artifacts
+        if: needs.prepare.outputs.geography_type == 'state'
+        uses: actions/download-artifact@v4
+        with:
+          pattern: summary-*
+          path: summaries
+          merge-multiple: true
+
+      - name: Combine state summaries
+        if: needs.prepare.outputs.geography_type == 'state'
+        working-directory: portal
+        run: |
+          echo "📋 Combining state summaries..."
+          mkdir -p public/data
+
+          summary_files=$(find ../summaries -name "*-summary.json" | sort | tr '\n' ' ')
+          echo "Found summaries: $summary_files"
+
+          npx tsx scripts/generate-state-summaries.ts --combine $summary_files
+
+          if [ -f "public/data/state-summaries.json" ]; then
+            echo "✅ Combined summaries"
+          else
+            echo "❌ Failed to create state-summaries.json"
+            exit 1
+          fi
+
+      - name: Upload state summaries to S3
+        if: needs.prepare.outputs.geography_type == 'state' && inputs.dry_run != true
+        working-directory: portal
+        run: |
+          echo "☁️ Uploading state-summaries.json to S3..."
+
+          gzip -c public/data/state-summaries.json > public/data/state-summaries.json.gz
+          aws s3 cp public/data/state-summaries.json.gz \
+            "s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/state-summaries.json" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+      - name: Summary
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 GENERATION COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "Model: ${{ inputs.model_id }}"
+          echo "Locations: ${{ inputs.location_set }}"
+          echo "Dry run: ${{ inputs.dry_run }}"
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo "Data available at: $(jq -r ".\"${{ inputs.model_id }}\".output.cloudfrontUrl" .github/config/models.json 2>/dev/null || echo 'CloudFront URL')"
+          fi
