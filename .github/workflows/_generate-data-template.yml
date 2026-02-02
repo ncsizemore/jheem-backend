@@ -73,6 +73,8 @@ jobs:
       summary_file: ${{ steps.config.outputs.summary_file }}
       scenario_mappings: ${{ steps.config.outputs.scenario_mappings }}
       base_file_pattern: ${{ steps.config.outputs.base_file_pattern }}
+      intervention_start_year: ${{ steps.config.outputs.intervention_start_year }}
+      intervention_end_year: ${{ steps.config.outputs.intervention_end_year }}
     steps:
       - name: Checkout jheem-backend (for config)
         uses: actions/checkout@v4
@@ -175,6 +177,13 @@ jobs:
           BASE_FILE_PATTERN=$(jq -r ".\"$MODEL_ID\".baseFilePattern // \"base\"" $CONFIG_FILE)
           echo "base_file_pattern=$BASE_FILE_PATTERN" >> $GITHUB_OUTPUT
           echo "Base file pattern: $BASE_FILE_PATTERN"
+
+          # Extract intervention period for cumulative impact calculation
+          INTERVENTION_START_YEAR=$(jq -r ".\"$MODEL_ID\".interventionStartYear // 2025" $CONFIG_FILE)
+          INTERVENTION_END_YEAR=$((INTERVENTION_START_YEAR + 5))
+          echo "intervention_start_year=$INTERVENTION_START_YEAR" >> $GITHUB_OUTPUT
+          echo "intervention_end_year=$INTERVENTION_END_YEAR" >> $GITHUB_OUTPUT
+          echo "Intervention period: $INTERVENTION_START_YEAR-$INTERVENTION_END_YEAR"
 
   # ===========================================================================
   # Phase 2: Generate, aggregate, and upload per location
@@ -380,7 +389,11 @@ jobs:
         working-directory: portal
         run: |
           echo "📋 Extracting summary for ${{ matrix.location }}..."
-          npx tsx scripts/generate-state-summaries.ts --single ${{ matrix.location }} "public/data/${{ matrix.location }}.json"
+          echo "Using intervention period: ${{ needs.prepare.outputs.intervention_start_year }}-${{ needs.prepare.outputs.intervention_end_year }}"
+          npx tsx scripts/generate-state-summaries.ts \
+            --single ${{ matrix.location }} "public/data/${{ matrix.location }}.json" \
+            --start-year ${{ needs.prepare.outputs.intervention_start_year }} \
+            --end-year ${{ needs.prepare.outputs.intervention_end_year }}
           mv "${{ matrix.location }}-summary.json" "public/data/${{ matrix.location }}-summary.json"
           echo "✅ Summary extracted"
 
