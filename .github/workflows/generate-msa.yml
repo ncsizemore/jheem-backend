@@ -29,7 +29,7 @@ on:
       container_image:
         description: 'Container image'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:v1.0.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:1.0.0'
         type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'

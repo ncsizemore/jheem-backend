@@ -79,7 +79,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "v1.0.0",
+      "version": "1.0.0",
       "repository": "ncsizemore/jheem-container-minimal"
     },
 
@@ -180,7 +180,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "v1.0.0",
+      "version": "1.0.0",
       "repository": "ncsizemore/jheem-container-minimal"
     },
 
@@ -239,24 +239,30 @@
       {
         "id": "cessation",
         "label": "Cessation",
-        "description": "Permanent end to Ryan White funding starting 2026"
+        "description": "Permanent end to Ryan White funding starting 2026",
+        "filePatterns": ["rw.end.26"]
       },
       {
         "id": "interruption",
         "label": "Interruption",
-        "description": "2.5-year funding gap (2026-2028), then services resume"
+        "description": "2.5-year funding gap (2026-2028), then services resume",
+        "filePatterns": ["rw.p.intr.26"]
       },
       {
         "id": "cessation_conservative",
         "label": "Cessation (Conservative)",
-        "description": "Permanent cessation with conservative impact assumptions"
+        "description": "Permanent cessation with conservative impact assumptions",
+        "filePatterns": ["rw.end.cons.26"]
       },
       {
         "id": "interruption_conservative",
         "label": "Interruption (Conservative)",
-        "description": "2.5-year gap with conservative impact assumptions"
+        "description": "2.5-year gap with conservative impact assumptions",
+        "filePatterns": ["rw.p.intr.cons.26"]
       }
     ],
+
+    "baseFilePattern": "noint",
 
     "outcomes": [
       "incidence",
@@ -292,7 +298,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-croi",
-      "version": "v1.0.0",
+      "version": "1.0.0",
       "repository": "ncsizemore/jheem-ryan-white-croi-container"
     },
 

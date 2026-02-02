@@ -71,6 +71,8 @@ jobs:
       s3_bucket: ${{ steps.config.outputs.s3_bucket }}
       geography_type: ${{ steps.config.outputs.geography_type }}
       summary_file: ${{ steps.config.outputs.summary_file }}
+      scenario_mappings: ${{ steps.config.outputs.scenario_mappings }}
+      base_file_pattern: ${{ steps.config.outputs.base_file_pattern }}
     steps:
       - name: Checkout jheem-backend (for config)
         uses: actions/checkout@v4
@@ -163,6 +165,17 @@ jobs:
           echo "geography_type=$GEOGRAPHY_TYPE" >> $GITHUB_OUTPUT
           echo "Geography: $GEOGRAPHY_TYPE"
 
+          # Extract scenario file mappings (for renaming downloaded files)
+          # Format: JSON object { "scenario_id": ["pattern1", "pattern2"], ... }
+          SCENARIO_MAPPINGS=$(jq -c ".\"$MODEL_ID\".scenarios | map(select(.filePatterns) | {(.id): .filePatterns}) | add // {}" $CONFIG_FILE)
+          echo "scenario_mappings=$SCENARIO_MAPPINGS" >> $GITHUB_OUTPUT
+          echo "Scenario mappings: $SCENARIO_MAPPINGS"
+
+          # Extract base file pattern (for identifying baseline simulation)
+          BASE_FILE_PATTERN=$(jq -r ".\"$MODEL_ID\".baseFilePattern // \"base\"" $CONFIG_FILE)
+          echo "base_file_pattern=$BASE_FILE_PATTERN" >> $GITHUB_OUTPUT
+          echo "Base file pattern: $BASE_FILE_PATTERN"
+
   # ===========================================================================
   # Phase 2: Generate, aggregate, and upload per location
   # ===========================================================================
@@ -250,27 +263,45 @@ jobs:
           ls -lh ./tmp-download/
 
           # Rename files to container's expected format
-          # Handle both AJPH format (STATE_scenario.Rdata) and CROI format (prefix_STATE_scenario.Rdata)
+          # Uses scenario mappings from models.json (filePatterns) or falls back to matching scenario id
+          BASE_PATTERN="${{ needs.prepare.outputs.base_file_pattern }}"
+          SCENARIO_MAPPINGS='${{ needs.prepare.outputs.scenario_mappings }}'
+          SCENARIOS="${{ needs.prepare.outputs.scenarios }}"
+
           for f in ./tmp-download/*.Rdata; do
             [ -f "$f" ] || continue
             filename=$(basename "$f")
+            matched=false
 
-            # Extract scenario from filename
-            if [[ "$filename" == *"_base.Rdata" ]] || [[ "$filename" == *"_noint.Rdata" ]]; then
+            # Check for base/baseline file
+            if [[ "$filename" == *"_base.Rdata" ]] || [[ "$filename" == *"_${BASE_PATTERN}."* ]]; then
               mv "$f" "simulations/ryan-white/base/${{ matrix.location }}_base.Rdata"
-            elif [[ "$filename" == *"cessation"* ]] && [[ "$filename" != *"conservative"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/cessation.Rdata"
-            elif [[ "$filename" == *"brief_interruption"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/brief_interruption.Rdata"
-            elif [[ "$filename" == *"prolonged_interruption"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/prolonged_interruption.Rdata"
-            elif [[ "$filename" == *"interruption"* ]] && [[ "$filename" != *"conservative"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/interruption.Rdata"
-            elif [[ "$filename" == *"cessation_conservative"* ]] || [[ "$filename" == *"end.cons"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/cessation_conservative.Rdata"
-            elif [[ "$filename" == *"interruption_conservative"* ]] || [[ "$filename" == *"intr.cons"* ]]; then
-              mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/interruption_conservative.Rdata"
-            else
+              echo "✓ Base: $filename"
+              matched=true
+              continue
+            fi
+
+            # Check scenario mappings from models.json
+            for scenario in $(echo "$SCENARIOS" | tr ',' ' '); do
+              # Get file patterns for this scenario (if defined)
+              patterns=$(echo "$SCENARIO_MAPPINGS" | jq -r ".\"$scenario\" // [] | .[]" 2>/dev/null)
+
+              # If no patterns defined, use scenario id as pattern
+              if [ -z "$patterns" ]; then
+                patterns="$scenario"
+              fi
+
+              for pattern in $patterns; do
+                if [[ "$filename" == *"$pattern"* ]]; then
+                  mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/${scenario}.Rdata"
+                  echo "✓ $scenario: $filename (matched '$pattern')"
+                  matched=true
+                  break 2
+                fi
+              done
+            done
+
+            if [ "$matched" = false ]; then
               echo "⚠️ Unknown file pattern: $filename"
             fi
           done
