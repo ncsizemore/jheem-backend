@@ -3,6 +3,9 @@
 # =============================================================================
 # Thin wrapper that calls the reusable template with MSA configuration.
 # Configuration is read from .github/config/models.json
+#
+# NOTE: Default values for container_image should match models.json.
+# See models.json _meta.syncNote for details.
 # =============================================================================
 
 name: Generate MSA Data (31 Cities)
@@ -18,6 +21,16 @@ on:
         options:
           - test      # 3 cities
           - full      # All 31 cities
+      dry_run:
+        description: 'Skip S3 uploads (for testing)'
+        required: true
+        default: false
+        type: boolean
+      container_image:
+        description: 'Container image'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:v1.0.0'
+        type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'
         required: true
@@ -35,7 +48,8 @@ jobs:
     with:
       model_id: 'ryan-white-msa'
       location_set: ${{ inputs.location_set }}
-      dry_run: false
+      dry_run: ${{ inputs.dry_run }}
       max_parallel: ${{ inputs.max_parallel }}
       include_individual_simulation: ${{ inputs.include_individual_simulation }}
+      container_image_override: ${{ inputs.container_image }}
     secrets: inherit

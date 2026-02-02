@@ -29,7 +29,7 @@ on:
         description: 'Skip S3 uploads (for testing)'
         required: false
         type: boolean
-        default: true
+        default: false
       max_parallel:
         description: 'Maximum parallel jobs'
         required: false
@@ -40,6 +40,16 @@ on:
         required: false
         type: boolean
         default: false
+      container_image_override:
+        description: 'Override container image (empty = use models.json)'
+        required: false
+        type: string
+        default: ''
+      release_override:
+        description: 'Override data release tag (empty = use models.json)'
+        required: false
+        type: string
+        default: ''
 
 jobs:
   # ===========================================================================
@@ -104,10 +114,16 @@ jobs:
           echo "statistics=$STATISTICS" >> $GITHUB_OUTPUT
           echo "Statistics: $STATISTICS"
 
-          # Extract container image with version
-          CONTAINER_IMAGE=$(jq -r ".\"$MODEL_ID\".container.image + \":\" + .\"$MODEL_ID\".container.version" $CONFIG_FILE)
+          # Extract container image with version (allow override)
+          CONFIG_CONTAINER=$(jq -r ".\"$MODEL_ID\".container.image + \":\" + .\"$MODEL_ID\".container.version" $CONFIG_FILE)
+          if [ -n "${{ inputs.container_image_override }}" ]; then
+            CONTAINER_IMAGE="${{ inputs.container_image_override }}"
+            echo "Container (override): $CONTAINER_IMAGE"
+          else
+            CONTAINER_IMAGE="$CONFIG_CONTAINER"
+            echo "Container (from config): $CONTAINER_IMAGE"
+          fi
           echo "container_image=$CONTAINER_IMAGE" >> $GITHUB_OUTPUT
-          echo "Container: $CONTAINER_IMAGE"
 
           # Extract data source info
           DATA_SOURCE_TYPE=$(jq -r ".\"$MODEL_ID\".dataSource.type" $CONFIG_FILE)
@@ -115,13 +131,22 @@ jobs:
           echo "Data source type: $DATA_SOURCE_TYPE"
 
           if [ "$DATA_SOURCE_TYPE" == "GitHub-Release" ]; then
-            DATA_SOURCE_RELEASE=$(jq -r ".\"$MODEL_ID\".dataSource.release" $CONFIG_FILE)
+            CONFIG_RELEASE=$(jq -r ".\"$MODEL_ID\".dataSource.release" $CONFIG_FILE)
             DATA_SOURCE_PATTERN=$(jq -r ".\"$MODEL_ID\".dataSource.filePattern // empty" $CONFIG_FILE)
             DATA_SOURCE_REPO=$(jq -r ".\"$MODEL_ID\".dataSource.repository" $CONFIG_FILE)
+
+            # Allow release override
+            if [ -n "${{ inputs.release_override }}" ]; then
+              DATA_SOURCE_RELEASE="${{ inputs.release_override }}"
+              echo "Release (override): $DATA_SOURCE_RELEASE"
+            else
+              DATA_SOURCE_RELEASE="$CONFIG_RELEASE"
+              echo "Release (from config): $DATA_SOURCE_RELEASE"
+            fi
+
             echo "data_source_release=$DATA_SOURCE_RELEASE" >> $GITHUB_OUTPUT
             echo "data_source_pattern=$DATA_SOURCE_PATTERN" >> $GITHUB_OUTPUT
             echo "data_source_repo=$DATA_SOURCE_REPO" >> $GITHUB_OUTPUT
-            echo "Release: $DATA_SOURCE_RELEASE"
           fi
 
           # Extract output paths

@@ -3,6 +3,9 @@
 # =============================================================================
 # Thin wrapper that calls the reusable template with AJPH configuration.
 # Configuration is read from .github/config/models.json
+#
+# NOTE: Default values for container_image and release should match models.json.
+# See models.json _meta.syncNote for details.
 # =============================================================================
 
 name: Generate AJPH Data (11 States)
@@ -18,6 +21,21 @@ on:
         options:
           - test      # 3 states (AL, CA, FL)
           - full      # All 11 states
+      dry_run:
+        description: 'Skip S3 uploads (for testing)'
+        required: true
+        default: false
+        type: boolean
+      container_image:
+        description: 'Container image'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:v1.0.0'
+        type: string
+      release:
+        description: 'Simulation data release tag'
+        required: true
+        default: 'ryan-white-state-v1.0.0'
+        type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'
         required: true
@@ -35,7 +53,9 @@ jobs:
     with:
       model_id: 'ryan-white-state-ajph'
       location_set: ${{ inputs.location_set }}
-      dry_run: false
+      dry_run: ${{ inputs.dry_run }}
       max_parallel: ${{ inputs.max_parallel }}
       include_individual_simulation: ${{ inputs.include_individual_simulation }}
+      container_image_override: ${{ inputs.container_image }}
+      release_override: ${{ inputs.release }}
     secrets: inherit
