@@ -75,6 +75,7 @@ jobs:
       base_file_pattern: ${{ steps.config.outputs.base_file_pattern }}
       intervention_start_year: ${{ steps.config.outputs.intervention_start_year }}
       intervention_end_year: ${{ steps.config.outputs.intervention_end_year }}
+      cloudfront_distribution_id: ${{ steps.config.outputs.cloudfront_distribution_id }}
     steps:
       - name: Checkout jheem-backend (for config)
         uses: actions/checkout@v4
@@ -184,6 +185,11 @@ jobs:
           echo "intervention_start_year=$INTERVENTION_START_YEAR" >> $GITHUB_OUTPUT
           echo "intervention_end_year=$INTERVENTION_END_YEAR" >> $GITHUB_OUTPUT
           echo "Intervention period: $INTERVENTION_START_YEAR-$INTERVENTION_END_YEAR"
+
+          # Extract CloudFront distribution ID for cache invalidation
+          CLOUDFRONT_DISTRIBUTION_ID=$(jq -r "._infrastructure.cloudfrontDistributionId" $CONFIG_FILE)
+          echo "cloudfront_distribution_id=$CLOUDFRONT_DISTRIBUTION_ID" >> $GITHUB_OUTPUT
+          echo "CloudFront distribution: $CLOUDFRONT_DISTRIBUTION_ID"
 
   # ===========================================================================
   # Phase 2: Generate, aggregate, and upload per location
@@ -524,6 +530,18 @@ jobs:
             "s3://${{ needs.prepare.outputs.s3_bucket }}/${{ needs.prepare.outputs.s3_path }}/state-summaries.json" \
             --content-type "application/json" \
             --content-encoding "gzip"
+
+      - name: Invalidate CloudFront cache
+        if: inputs.dry_run != true
+        run: |
+          echo "🔄 Invalidating CloudFront cache for /${{ needs.prepare.outputs.s3_path }}/*"
+
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ needs.prepare.outputs.cloudfront_distribution_id }} \
+            --paths "/${{ needs.prepare.outputs.s3_path }}/*" \
+            --output text
+
+          echo "✅ Cache invalidation requested (may take 1-5 minutes to propagate)"
 
       - name: Summary
         run: |

@@ -3,8 +3,13 @@
   "_meta": {
     "version": "1.0.0",
     "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
-    "lastUpdated": "2026-01-30",
+    "lastUpdated": "2026-02-03",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
+  },
+
+  "_infrastructure": {
+    "cloudfrontDistributionId": "E3VDQ7V9FBIIGD",
+    "cloudfrontDomain": "d320iym4dtm9lj.cloudfront.net"
   },
 
   "ryan-white-msa": {
