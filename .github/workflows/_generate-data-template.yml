@@ -534,11 +534,16 @@ jobs:
       - name: Invalidate CloudFront cache
         if: inputs.dry_run != true
         run: |
-          echo "🔄 Invalidating CloudFront cache for /${{ needs.prepare.outputs.s3_path }}/*"
+          # CloudFront origin has path /portal, so CloudFront paths don't include it
+          # S3 path: portal/ryan-white-state-croi -> CloudFront path: /ryan-white-state-croi
+          S3_PATH="${{ needs.prepare.outputs.s3_path }}"
+          CF_PATH="/${S3_PATH#portal/}"
+
+          echo "🔄 Invalidating CloudFront cache for ${CF_PATH}/*"
 
           aws cloudfront create-invalidation \
             --distribution-id ${{ needs.prepare.outputs.cloudfront_distribution_id }} \
-            --paths "/${{ needs.prepare.outputs.s3_path }}/*" \
+            --paths "${CF_PATH}/*" \
             --output text
 
           echo "✅ Cache invalidation requested (may take 1-5 minutes to propagate)"
