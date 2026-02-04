@@ -192,8 +192,8 @@
     "dataSource": {
       "type": "GitHub-Release",
       "repository": "ncsizemore/jheem-simulations",
-      "release": "ryan-white-state-v1.0.0",
-      "filePattern": "{STATE}_*.Rdata"
+      "release": "ryan-white-ajph-v1.0.0",
+      "filePattern": "rw_final.ehe.state-1000_{STATE}_*.Rdata"
     },
 
     "output": {

@@ -34,7 +34,7 @@ on:
       release:
         description: 'Simulation data release tag'
         required: true
-        default: 'ryan-white-state-v1.0.0'
+        default: 'ryan-white-ajph-v1.0.0'
         type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'
