@@ -137,19 +137,24 @@
       {
         "id": "cessation",
         "label": "Cessation",
-        "description": "Permanent end to Ryan White funding"
+        "description": "Permanent end to Ryan White funding",
+        "filePatterns": ["rw.end"]
       },
       {
         "id": "brief_interruption",
         "label": "Brief Interruption",
-        "description": "18-month funding gap, then services resume"
+        "description": "18-month funding gap, then services resume",
+        "filePatterns": ["rw.b.intr"]
       },
       {
         "id": "prolonged_interruption",
         "label": "Prolonged Interruption",
-        "description": "42-month funding gap, then services resume"
+        "description": "42-month funding gap, then services resume",
+        "filePatterns": ["rw.p.intr"]
       }
     ],
+
+    "baseFilePattern": "noint",
 
     "outcomes": [
       "incidence",
