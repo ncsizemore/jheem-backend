@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.0.0",
     "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
-    "lastUpdated": "2026-02-03",
+    "lastUpdated": "2026-02-04",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
 
@@ -89,9 +89,9 @@
     },
 
     "dataSource": {
-      "type": "S3",
-      "bucket": "jheem-data-production",
-      "path": "simulations/ryan-white/"
+      "type": "GitHub-Release",
+      "repository": "ncsizemore/jheem-simulations",
+      "release": "ryan-white-msa-v1.0.0"
     },
 
     "output": {

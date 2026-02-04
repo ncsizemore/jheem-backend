@@ -4,7 +4,7 @@
 # Thin wrapper that calls the reusable template with MSA configuration.
 # Configuration is read from .github/config/models.json
 #
-# NOTE: Default values for container_image should match models.json.
+# NOTE: Default values for container_image and release should match models.json.
 # See models.json _meta.syncNote for details.
 # =============================================================================
 
@@ -31,6 +31,11 @@ on:
         required: true
         default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:1.0.0'
         type: string
+      release:
+        description: 'Simulation data release tag'
+        required: true
+        default: 'ryan-white-msa-v1.0.0'
+        type: string
       include_individual_simulation:
         description: 'Include individual simulation statistic (larger files)'
         required: true
@@ -52,4 +57,5 @@ jobs:
       max_parallel: ${{ inputs.max_parallel }}
       include_individual_simulation: ${{ inputs.include_individual_simulation }}
       container_image_override: ${{ inputs.container_image }}
+      release_override: ${{ inputs.release }}
     secrets: inherit
