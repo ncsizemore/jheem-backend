@@ -46,11 +46,11 @@ for state in "${STATES[@]}"; do
   for scenario in "${SCENARIO_PATTERNS[@]}"; do
     FILE="$SIM_DIR/$state/cdct_final.ehe.state-1000_${state}_${scenario}.Rdata"
     if [[ ! -f "$FILE" ]]; then
-      ((MISSING++))
-      ((STATE_MISSING++))
+      MISSING=$((MISSING + 1))
+      STATE_MISSING=$((STATE_MISSING + 1))
       STATE_SCENARIOS="$STATE_SCENARIOS $scenario"
     else
-      ((FOUND++))
+      FOUND=$((FOUND + 1))
     fi
   done
   if [[ $STATE_MISSING -gt 0 ]]; then
