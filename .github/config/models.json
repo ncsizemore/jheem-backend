@@ -392,8 +392,7 @@
       "prep.uptake",
       "suppression",
       "awareness",
-      "cdc.funded.tests",
-      "cdc.funded.diagnoses"
+      "cdc.funded.tests"
     ],
 
     "facets": [
