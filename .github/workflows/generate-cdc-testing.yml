@@ -1,0 +1,61 @@
+# =============================================================================
+# Generate CDC Testing Data - 18 States
+# =============================================================================
+# Thin wrapper that calls the reusable template with CDC Testing configuration.
+# Configuration is read from .github/config/models.json
+#
+# NOTE: Default values for container_image and release should match models.json.
+# See models.json _meta.syncNote for details.
+# =============================================================================
+
+name: Generate CDC Testing Data (18 States)
+
+on:
+  workflow_dispatch:
+    inputs:
+      location_set:
+        description: 'States to generate'
+        required: true
+        default: 'test'
+        type: choice
+        options:
+          - test      # 3 states (AL, CA, FL)
+          - full      # All 18 states
+      dry_run:
+        description: 'Skip S3 uploads (for testing)'
+        required: true
+        default: false
+        type: boolean
+      container_image:
+        description: 'Container image'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-cdc-testing-model:1.0.0'
+        type: string
+      release:
+        description: 'Simulation data release tag'
+        required: true
+        default: 'cdc-testing-v1.0.0'
+        type: string
+      include_individual_simulation:
+        description: 'Include individual simulation statistic (larger files)'
+        required: true
+        default: false
+        type: boolean
+      max_parallel:
+        description: 'Maximum parallel jobs'
+        required: true
+        default: '5'
+        type: string
+
+jobs:
+  generate:
+    uses: ./.github/workflows/_generate-data-template.yml
+    with:
+      model_id: 'cdc-testing'
+      location_set: ${{ inputs.location_set }}
+      dry_run: ${{ inputs.dry_run }}
+      max_parallel: ${{ inputs.max_parallel }}
+      include_individual_simulation: ${{ inputs.include_individual_simulation }}
+      container_image_override: ${{ inputs.container_image }}
+      release_override: ${{ inputs.release }}
+    secrets: inherit

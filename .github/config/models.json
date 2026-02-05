@@ -345,36 +345,64 @@
   },
 
   "cdc-testing": {
-    "_status": "placeholder",
     "displayName": "CDC Testing Model Explorer",
     "shortName": "CDC Testing",
-    "description": "CDC HIV testing intervention scenarios - configuration pending",
+    "description": "Analysis of CDC-funded HIV testing program scenarios across 18 US states",
 
     "geographyType": "state",
     "geographyLabel": "State",
     "geographyLabelPlural": "States",
 
     "locations": {
-      "test": [],
-      "full": []
+      "test": ["AL", "CA", "FL"],
+      "full": [
+        "AL", "AZ", "CA", "CO", "FL", "GA", "IL", "LA",
+        "MD", "MI", "NC", "NJ", "NY", "OH", "PA", "SC", "TX", "VA"
+      ]
     },
 
     "scenarios": [
       {
-        "id": "baseline",
-        "label": "Baseline",
-        "description": "Current testing levels continue"
+        "id": "cessation",
+        "label": "Cessation",
+        "description": "Complete cessation of CDC-funded testing",
+        "filePatterns": ["cdct.end"]
       },
       {
-        "id": "increased_testing",
-        "label": "Increased Testing",
-        "description": "Expanded testing program"
+        "id": "brief_interruption",
+        "label": "Brief Interruption",
+        "description": "Brief interruption of CDC-funded testing",
+        "filePatterns": ["cdct.bintr"]
+      },
+      {
+        "id": "prolonged_interruption",
+        "label": "Prolonged Interruption",
+        "description": "Prolonged interruption of CDC-funded testing",
+        "filePatterns": ["cdct.pintr"]
       }
     ],
 
-    "outcomes": [],
+    "baseFilePattern": "noint",
 
-    "facets": ["none"],
+    "outcomes": [
+      "incidence",
+      "new",
+      "diagnosed.prevalence",
+      "testing",
+      "prep.uptake",
+      "suppression",
+      "awareness",
+      "cdc.funded.tests",
+      "cdc.funded.diagnoses"
+    ],
+
+    "facets": [
+      "none",
+      "age", "race", "sex", "risk",
+      "age+race", "age+sex", "age+risk", "race+sex", "race+risk", "sex+risk",
+      "age+race+sex", "age+race+risk", "age+sex+risk", "race+sex+risk",
+      "age+race+sex+risk"
+    ],
 
     "facetDimensions": ["age", "sex", "race", "risk"],
 
@@ -384,16 +412,16 @@
     },
 
     "container": {
-      "image": "",
-      "version": "",
-      "repository": ""
+      "image": "ghcr.io/ncsizemore/jheem-cdc-testing-model",
+      "version": "1.0.0",
+      "repository": "ncsizemore/jheem-cdc-testing-container"
     },
 
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "",
-      "release": "",
-      "filePattern": ""
+      "repository": "ncsizemore/jheem-simulations",
+      "release": "cdc-testing-v1.0.0",
+      "filePattern": "cdct_final.ehe.state-1000_{STATE}_*.Rdata"
     },
 
     "output": {
@@ -404,7 +432,7 @@
     },
 
     "defaults": {
-      "outcome": "diagnoses",
+      "outcome": "incidence",
       "statistic": "mean.and.interval"
     },
 
