@@ -356,8 +356,8 @@
     "locations": {
       "test": ["AL", "CA", "FL"],
       "full": [
-        "AL", "AZ", "CA", "CO", "FL", "GA", "IL", "LA",
-        "MD", "MI", "NC", "NJ", "NY", "OH", "PA", "SC", "TX", "VA"
+        "AL", "AZ", "CA", "FL", "GA", "IL", "KY", "LA",
+        "MD", "MO", "MS", "NY", "OH", "SC", "TN", "TX", "WA", "WI"
       ]
     },
 
