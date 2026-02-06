@@ -389,10 +389,10 @@
       "new",
       "diagnosed.prevalence",
       "testing",
-      "prep.uptake",
-      "suppression",
       "awareness",
-      "cdc.funded.tests"
+      "cdc.funded.tests",
+      "total.cdc.hiv.test.positivity",
+      "total.hiv.tests"
     ],
 
     "facets": [
