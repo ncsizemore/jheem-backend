@@ -75,6 +75,7 @@ jobs:
       base_file_pattern: ${{ steps.config.outputs.base_file_pattern }}
       intervention_start_year: ${{ steps.config.outputs.intervention_start_year }}
       intervention_end_year: ${{ steps.config.outputs.intervention_end_year }}
+      summary_metrics: ${{ steps.config.outputs.summary_metrics }}
       cloudfront_distribution_id: ${{ steps.config.outputs.cloudfront_distribution_id }}
     steps:
       - name: Checkout jheem-backend (for config)
@@ -185,6 +186,17 @@ jobs:
           echo "intervention_start_year=$INTERVENTION_START_YEAR" >> $GITHUB_OUTPUT
           echo "intervention_end_year=$INTERVENTION_END_YEAR" >> $GITHUB_OUTPUT
           echo "Intervention period: $INTERVENTION_START_YEAR-$INTERVENTION_END_YEAR"
+
+          # Extract summary metrics configuration (for hover cards)
+          # This allows different models to have different metrics (e.g., CDC Testing uses awareness, not suppression)
+          SUMMARY_METRICS=$(jq -c ".\"$MODEL_ID\".summaryMetrics // null" $CONFIG_FILE)
+          if [ "$SUMMARY_METRICS" != "null" ]; then
+            echo "summary_metrics=$SUMMARY_METRICS" >> $GITHUB_OUTPUT
+            echo "Summary metrics: $(echo $SUMMARY_METRICS | jq -r '.statusMetrics | map(.outcome) | join(", ")')"
+          else
+            echo "summary_metrics=" >> $GITHUB_OUTPUT
+            echo "Using default summary metrics (diagnosed.prevalence, suppression)"
+          fi
 
           # Extract CloudFront distribution ID for cache invalidation
           CLOUDFRONT_DISTRIBUTION_ID=$(jq -r "._infrastructure.cloudfrontDistributionId" $CONFIG_FILE)
@@ -393,13 +405,26 @@ jobs:
       - name: Extract location summary
         if: needs.prepare.outputs.geography_type == 'state'
         working-directory: portal
+        env:
+          SUMMARY_METRICS: ${{ needs.prepare.outputs.summary_metrics }}
         run: |
           echo "📋 Extracting summary for ${{ matrix.location }}..."
           echo "Using intervention period: ${{ needs.prepare.outputs.intervention_start_year }}-${{ needs.prepare.outputs.intervention_end_year }}"
-          npx tsx scripts/generate-state-summaries.ts \
-            --single ${{ matrix.location }} "public/data/${{ matrix.location }}.json" \
+
+          # Build command with optional summary metrics
+          CMD="npx tsx scripts/generate-state-summaries.ts \
+            --single ${{ matrix.location }} public/data/${{ matrix.location }}.json \
             --start-year ${{ needs.prepare.outputs.intervention_start_year }} \
-            --end-year ${{ needs.prepare.outputs.intervention_end_year }}
+            --end-year ${{ needs.prepare.outputs.intervention_end_year }}"
+
+          if [ -n "$SUMMARY_METRICS" ]; then
+            echo "Using custom summary metrics from models.json"
+            CMD="$CMD --summary-metrics '$SUMMARY_METRICS'"
+          else
+            echo "Using default summary metrics"
+          fi
+
+          eval $CMD
           mv "${{ matrix.location }}-summary.json" "public/data/${{ matrix.location }}-summary.json"
           echo "✅ Summary extracted"
 

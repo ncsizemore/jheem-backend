@@ -1,9 +1,9 @@
 {
   "$schema": "./models.schema.json",
   "_meta": {
-    "version": "1.0.0",
+    "version": "1.1.0",
     "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
-    "lastUpdated": "2026-02-04",
+    "lastUpdated": "2026-02-06",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
 
@@ -113,6 +113,15 @@
 
     "interventionStartYear": 2025,
 
+    "summaryMetrics": {
+      "statusMetrics": [
+        { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
+        { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
+      ],
+      "impactOutcome": "incidence",
+      "impactLabel": "new HIV infections"
+    },
+
     "workflow": {
       "maxParallel": 10,
       "includeIndividualSimulation": false
@@ -219,6 +228,15 @@
     },
 
     "interventionStartYear": 2025,
+
+    "summaryMetrics": {
+      "statusMetrics": [
+        { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
+        { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
+      ],
+      "impactOutcome": "incidence",
+      "impactLabel": "new HIV infections"
+    },
 
     "workflow": {
       "maxParallel": 5,
@@ -338,6 +356,15 @@
 
     "interventionStartYear": 2026,
 
+    "summaryMetrics": {
+      "statusMetrics": [
+        { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
+        { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
+      ],
+      "impactOutcome": "incidence",
+      "impactLabel": "new HIV infections"
+    },
+
     "workflow": {
       "maxParallel": 3,
       "includeIndividualSimulation": false
@@ -441,6 +468,15 @@
     },
 
     "interventionStartYear": 2025,
+
+    "summaryMetrics": {
+      "statusMetrics": [
+        { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
+        { "outcome": "awareness", "year": 2024, "label": "Awareness of HIV status", "format": "percent" }
+      ],
+      "impactOutcome": "incidence",
+      "impactLabel": "new HIV infections"
+    },
 
     "workflow": {
       "maxParallel": 5,
