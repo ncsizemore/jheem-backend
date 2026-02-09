@@ -118,8 +118,7 @@
         { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
         { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
       ],
-      "impactOutcome": "incidence",
-      "impactLabel": "new HIV infections"
+      "impactOutcome": "incidence"
     },
 
     "workflow": {
@@ -234,8 +233,7 @@
         { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
         { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
       ],
-      "impactOutcome": "incidence",
-      "impactLabel": "new HIV infections"
+      "impactOutcome": "incidence"
     },
 
     "workflow": {
@@ -361,8 +359,7 @@
         { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
         { "outcome": "suppression", "year": 2024, "label": "Viral suppression rate", "format": "percent" }
       ],
-      "impactOutcome": "incidence",
-      "impactLabel": "new HIV infections"
+      "impactOutcome": "incidence"
     },
 
     "workflow": {
@@ -474,8 +471,7 @@
         { "outcome": "diagnosed.prevalence", "year": 2024, "label": "People living with diagnosed HIV", "format": "count" },
         { "outcome": "awareness", "year": 2024, "label": "Awareness of HIV status", "format": "percent" }
       ],
-      "impactOutcome": "incidence",
-      "impactLabel": "new HIV infections"
+      "impactOutcome": "incidence"
     },
 
     "workflow": {
