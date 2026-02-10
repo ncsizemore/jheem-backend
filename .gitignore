@@ -39,3 +39,7 @@ orchestration_configs/master_config_*.yaml
 # Local development artifacts
 plots/
 lib/
+
+# Session notes (ephemeral)
+SESSION_SUMMARY_*.md
+.claude-sessions/
