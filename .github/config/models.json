@@ -84,8 +84,8 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "1.0.0",
-      "repository": "ncsizemore/jheem-container-minimal"
+      "version": "2.0.0",
+      "repository": "ncsizemore/jheem-ryan-white-container"
     },
 
     "dataSource": {
@@ -198,8 +198,8 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "1.0.0",
-      "repository": "ncsizemore/jheem-container-minimal"
+      "version": "2.0.0",
+      "repository": "ncsizemore/jheem-ryan-white-container"
     },
 
     "dataSource": {
