@@ -144,6 +144,19 @@ jobs:
           library(distributions)
           library(locations)
 
+          # Workaround for jheem2 bug: populate_outcomes_array crashes on NULL
+          # new_values/old_times (affects aids.diagnoses and aids.deaths outcomes
+          # in state-level simsets). Guard with NULL check before calling C++.
+          original_poa <- get("populate_outcomes_array", envir = asNamespace("jheem2"))
+          patched_poa <- function(desired_times, char_desired_times, n_per_time,
+                                   new_values, new_times, old_values, old_times, prior_sim_index) {
+            if (is.null(new_values) || is.null(old_times)) return(old_values)
+            original_poa(desired_times, char_desired_times, n_per_time,
+                         new_values, new_times, old_values, old_times, prior_sim_index)
+          }
+          environment(patched_poa) <- asNamespace("jheem2")
+          assignInNamespace("populate_outcomes_array", patched_poa, ns = "jheem2")
+
           t1_elapsed <- (proc.time() - t1)["elapsed"]
           gc_after_workspace <- gc()
           mem_workspace_mb <- sum(gc_after_workspace[, "used"] * c(8, 8)) / 1024 / 1024
