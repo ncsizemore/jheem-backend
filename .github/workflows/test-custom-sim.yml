@@ -6,6 +6,10 @@
 # within the memory and time constraints of a standard GitHub Actions runner.
 #
 # Standard runner: 7 GB RAM, 2 vCPUs, 14 GB SSD
+#
+# Supports both MSA (city) and state-level simsets:
+#   MSA:   location=C.12580, release=ryan-white-msa-v1.0.0, pattern={LOC}_base.Rdata
+#   State: location=AL, release=ryan-white-state-v2.0.0, pattern=rw_final.ehe.state-1000_{LOC}_noint.Rdata
 # =============================================================================
 
 name: Test Custom Simulation
@@ -13,10 +17,25 @@ name: Test Custom Simulation
 on:
   workflow_dispatch:
     inputs:
-      city:
-        description: 'City code to test'
+      location:
+        description: 'Location code (e.g. C.12580 for MSA, AL for state)'
         required: true
         default: 'C.12580'
+        type: string
+      release:
+        description: 'Simulation data release tag'
+        required: true
+        default: 'ryan-white-msa-v1.0.0'
+        type: string
+      file_pattern:
+        description: 'Simset filename pattern ({LOC} replaced with location)'
+        required: true
+        default: '{LOC}_base.Rdata'
+        type: string
+      container_image:
+        description: 'Container image to use'
+        required: true
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:2.0.0'
         type: string
       adap_loss:
         description: 'ADAP suppression loss (%)'
@@ -48,7 +67,10 @@ jobs:
           echo "Disk: $(df -h / | awk 'NR==2{print $4}') available"
           echo ""
           echo "Parameters:"
-          echo "  City: ${{ inputs.city }}"
+          echo "  Location: ${{ inputs.location }}"
+          echo "  Release: ${{ inputs.release }}"
+          echo "  File pattern: ${{ inputs.file_pattern }}"
+          echo "  Container: ${{ inputs.container_image }}"
           echo "  ADAP loss: ${{ inputs.adap_loss }}%"
           echo "  OAHS loss: ${{ inputs.oahs_loss }}%"
           echo "  Other loss: ${{ inputs.other_loss }}%"
@@ -57,12 +79,16 @@ jobs:
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: |
-          echo "📥 Downloading base simset for ${{ inputs.city }}..."
+          # Replace {LOC} placeholder with actual location code
+          FILENAME="${{ inputs.file_pattern }}"
+          FILENAME="${FILENAME//\{LOC\}/${{ inputs.location }}}"
+
+          echo "📥 Downloading $FILENAME from ${{ inputs.release }}..."
           mkdir -p simulations
 
-          gh release download ryan-white-msa-v1.0.0 \
+          gh release download "${{ inputs.release }}" \
             --repo ncsizemore/jheem-simulations \
-            --pattern "${{ inputs.city }}_base.Rdata" \
+            --pattern "$FILENAME" \
             --dir ./simulations
 
           ls -lh ./simulations/
@@ -130,14 +156,23 @@ jobs:
           cat("--- PHASE 2: Load base simulation ---\n")
           t2 <- proc.time()
 
-          city <- Sys.getenv("TEST_CITY", "C.12580")
-          simset_path <- paste0("/data/", city, "_base.Rdata")
-
-          if (!file.exists(simset_path)) stop(paste("Simset not found:", simset_path))
+          # Find the simset file in /data/ (works for any naming pattern)
+          simset_files <- list.files("/data/", pattern = "\\.Rdata$", full.names = TRUE, ignore.case = TRUE)
+          if (length(simset_files) == 0) stop("No .Rdata files found in /data/")
+          simset_path <- simset_files[1]
+          cat(sprintf("  Loading: %s (%.0f MB)\n", basename(simset_path), file.size(simset_path) / 1024 / 1024))
 
           loaded <- load(simset_path)
           base_simset <- get(loaded[1])
           cat(sprintf("  Loaded: %s (class: %s)\n", loaded[1], class(base_simset)[1]))
+
+          # Report simset size
+          n_sims <- tryCatch({
+            if (is.list(base_simset) && !is.null(base_simset$n.sim)) base_simset$n.sim
+            else if (methods::is(base_simset, "R6") && !is.null(base_simset$n.sim)) base_simset$n.sim
+            else "unknown"
+          }, error = function(e) "unknown")
+          cat(sprintf("  Number of simulations: %s\n", n_sims))
 
           t2_elapsed <- (proc.time() - t2)["elapsed"]
           gc_after_simset <- gc()
@@ -233,7 +268,6 @@ jobs:
 
       - name: Run custom simulation test
         env:
-          TEST_CITY: ${{ inputs.city }}
           TEST_ADAP_LOSS: ${{ inputs.adap_loss }}
           TEST_OAHS_LOSS: ${{ inputs.oahs_loss }}
           TEST_OTHER_LOSS: ${{ inputs.other_loss }}
@@ -258,8 +292,8 @@ jobs:
             --entrypoint "" \
             -v $(pwd)/simulations:/data:ro \
             -v $(pwd)/test_custom_sim.R:/app/test_custom_sim.R:ro \
-            -e TEST_CITY -e TEST_ADAP_LOSS -e TEST_OAHS_LOSS -e TEST_OTHER_LOSS \
-            ghcr.io/ncsizemore/jheem-ryan-white-model:2.0.0 \
+            -e TEST_ADAP_LOSS -e TEST_OAHS_LOSS -e TEST_OTHER_LOSS \
+            ${{ inputs.container_image }} \
             R --slave -e "source('test_custom_sim.R')"
 
           kill $MONITOR_PID 2>/dev/null || true
