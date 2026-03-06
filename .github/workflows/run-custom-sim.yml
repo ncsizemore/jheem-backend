@@ -1,0 +1,376 @@
+# =============================================================================
+# Run Custom Simulation
+# =============================================================================
+# Runs a custom simulation with user-specified parameters, extracts data in
+# the same JSON format as batch mode, aggregates into a per-location file,
+# and uploads to S3/CloudFront.
+#
+# The output is identical to prerun data — the portal renders it the same way.
+#
+# Scenario key is derived deterministically from parameters (e.g., "a50-o30-r40")
+# so identical parameters always map to the same S3 path for caching.
+#
+# S3 layout:
+#   portal/{s3Path}/custom/{location}/{scenario-key}.json       (data)
+#   portal/{s3Path}/custom/{location}/{scenario-key}-status.json (status)
+#
+# Triggered manually (workflow_dispatch) or via API for portal-initiated runs.
+# =============================================================================
+
+name: Run Custom Simulation
+
+on:
+  workflow_dispatch:
+    inputs:
+      model_id:
+        description: 'Model ID from models.json (e.g., ryan-white-msa)'
+        required: true
+        default: 'ryan-white-msa'
+        type: string
+      location:
+        description: 'Location code (e.g., C.12580 for MSA, AL for state)'
+        required: true
+        type: string
+      parameters:
+        description: 'JSON object of parameter values (e.g., {"adap_loss": 50, "oahs_loss": 30, "other_loss": 40})'
+        required: true
+        type: string
+      release_override:
+        description: 'Override data release tag (empty = use models.json)'
+        required: false
+        default: ''
+        type: string
+      container_image_override:
+        description: 'Override container image (empty = use models.json)'
+        required: false
+        default: ''
+        type: string
+      dry_run:
+        description: 'Skip S3 upload (for testing)'
+        required: false
+        type: boolean
+        default: false
+
+jobs:
+  custom-sim:
+    runs-on: ubuntu-latest
+    steps:
+      - name: Checkout jheem-backend (for config)
+        uses: actions/checkout@v4
+
+      - name: Load model configuration
+        id: config
+        run: |
+          CONFIG_FILE=".github/config/models.json"
+          MODEL_ID="${{ inputs.model_id }}"
+          PARAMS='${{ inputs.parameters }}'
+
+          echo "📋 Loading configuration for model: $MODEL_ID"
+
+          # Verify model has customSimulation config
+          HAS_CUSTOM=$(jq -r ".\"$MODEL_ID\".customSimulation // empty" $CONFIG_FILE)
+          if [ -z "$HAS_CUSTOM" ]; then
+            echo "❌ Model '$MODEL_ID' does not have customSimulation config in models.json"
+            exit 1
+          fi
+
+          # --- Build scenario key and env vars from models.json parameter definitions ---
+          # Read parameter definitions from models.json
+          PARAM_DEFS=$(jq -c ".\"$MODEL_ID\".customSimulation.parameters" $CONFIG_FILE)
+
+          # Build scenario key (e.g., "a50-o30-r40") and env var flags
+          SCENARIO_KEY=""
+          SCENARIO_LABEL=""
+          ENV_FLAGS=""
+          PARAM_COUNT=$(echo "$PARAM_DEFS" | jq 'length')
+
+          for i in $(seq 0 $((PARAM_COUNT - 1))); do
+            PARAM_ID=$(echo "$PARAM_DEFS" | jq -r ".[$i].id")
+            ENV_VAR=$(echo "$PARAM_DEFS" | jq -r ".[$i].envVar")
+            KEY_PREFIX=$(echo "$PARAM_DEFS" | jq -r ".[$i].keyPrefix")
+            LABEL=$(echo "$PARAM_DEFS" | jq -r ".[$i].label")
+            DEFAULT=$(echo "$PARAM_DEFS" | jq -r ".[$i].default")
+            UNIT=$(echo "$PARAM_DEFS" | jq -r ".[$i].unit")
+
+            # Get value from user params, fall back to default
+            VALUE=$(echo "$PARAMS" | jq -r ".${PARAM_ID} // $DEFAULT")
+
+            # Build scenario key part
+            if [ -n "$SCENARIO_KEY" ]; then
+              SCENARIO_KEY="${SCENARIO_KEY}-"
+              SCENARIO_LABEL="${SCENARIO_LABEL}, "
+            fi
+            SCENARIO_KEY="${SCENARIO_KEY}${KEY_PREFIX}${VALUE}"
+            SCENARIO_LABEL="${SCENARIO_LABEL}${LABEL} ${VALUE}${UNIT}"
+
+            # Build docker env flags
+            ENV_FLAGS="${ENV_FLAGS} -e ${ENV_VAR}=${VALUE}"
+          done
+
+          echo "scenario_key=$SCENARIO_KEY" >> $GITHUB_OUTPUT
+          echo "scenario_label=$SCENARIO_LABEL" >> $GITHUB_OUTPUT
+          echo "env_flags=$ENV_FLAGS" >> $GITHUB_OUTPUT
+
+          # --- Read other config ---
+          OUTCOMES=$(jq -r ".\"$MODEL_ID\".outcomes | join(\",\")" $CONFIG_FILE)
+          echo "outcomes=$OUTCOMES" >> $GITHUB_OUTPUT
+
+          STATISTICS=$(jq -r ".\"$MODEL_ID\".customSimulation.statistics | join(\",\")" $CONFIG_FILE)
+          echo "statistics=$STATISTICS" >> $GITHUB_OUTPUT
+
+          FACETS=$(jq -r ".\"$MODEL_ID\".customSimulation.facets | join(\",\")" $CONFIG_FILE)
+          echo "facets=$FACETS" >> $GITHUB_OUTPUT
+
+          # Container image
+          CONFIG_CONTAINER=$(jq -r ".\"$MODEL_ID\".container.image + \":\" + .\"$MODEL_ID\".container.version" $CONFIG_FILE)
+          if [ -n "${{ inputs.container_image_override }}" ]; then
+            CONTAINER_IMAGE="${{ inputs.container_image_override }}"
+          else
+            CONTAINER_IMAGE="$CONFIG_CONTAINER"
+          fi
+          echo "container_image=$CONTAINER_IMAGE" >> $GITHUB_OUTPUT
+
+          # Data source
+          CONFIG_RELEASE=$(jq -r ".\"$MODEL_ID\".dataSource.release" $CONFIG_FILE)
+          DATA_SOURCE_PATTERN=$(jq -r ".\"$MODEL_ID\".dataSource.filePattern // empty" $CONFIG_FILE)
+          if [ -n "${{ inputs.release_override }}" ]; then
+            RELEASE="${{ inputs.release_override }}"
+          else
+            RELEASE="$CONFIG_RELEASE"
+          fi
+          echo "release=$RELEASE" >> $GITHUB_OUTPUT
+          echo "data_source_pattern=$DATA_SOURCE_PATTERN" >> $GITHUB_OUTPUT
+
+          # Output paths
+          S3_BUCKET=$(jq -r ".\"$MODEL_ID\".output.s3Bucket" $CONFIG_FILE)
+          S3_PATH=$(jq -r ".\"$MODEL_ID\".output.s3Path" $CONFIG_FILE)
+          echo "s3_bucket=$S3_BUCKET" >> $GITHUB_OUTPUT
+          echo "s3_path=$S3_PATH" >> $GITHUB_OUTPUT
+
+          # CloudFront
+          CF_DIST_ID=$(jq -r "._infrastructure.cloudfrontDistributionId" $CONFIG_FILE)
+          echo "cloudfront_distribution_id=$CF_DIST_ID" >> $GITHUB_OUTPUT
+
+          echo ""
+          echo "=========================================="
+          echo "Custom simulation configuration"
+          echo "=========================================="
+          echo "  Location:      ${{ inputs.location }}"
+          echo "  Scenario key:  $SCENARIO_KEY"
+          echo "  Scenario label: $SCENARIO_LABEL"
+          echo "  Container:     $CONTAINER_IMAGE"
+          echo "  Release:       $RELEASE"
+          echo "  Outcomes:      $OUTCOMES"
+          echo "  Statistics:    $STATISTICS"
+          echo "  Facets:        $FACETS"
+          echo "  S3 path:       s3://$S3_BUCKET/$S3_PATH/custom/${{ inputs.location }}/$SCENARIO_KEY.json"
+
+      - name: Write status file (running)
+        if: inputs.dry_run != true
+        uses: aws-actions/configure-aws-credentials@v4
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+
+      - name: Upload running status
+        if: inputs.dry_run != true
+        run: |
+          STATUS_PATH="${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json"
+
+          echo '{"status":"running","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
+            | aws s3 cp - "s3://${{ steps.config.outputs.s3_bucket }}/$STATUS_PATH" \
+              --content-type "application/json"
+
+          echo "📡 Status file written: $STATUS_PATH"
+
+      - name: Download base simset from GitHub Release
+        env:
+          GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: |
+          LOCATION="${{ inputs.location }}"
+          RELEASE="${{ steps.config.outputs.release }}"
+          PATTERN="${{ steps.config.outputs.data_source_pattern }}"
+
+          # Build download pattern
+          if [ -n "$PATTERN" ]; then
+            DL_PATTERN=$(echo "$PATTERN" | sed "s/{STATE}/$LOCATION/g" | sed "s/{LOC}/$LOCATION/g")
+          else
+            DL_PATTERN="*${LOCATION}*"
+          fi
+
+          echo "📥 Downloading base simset from $RELEASE (pattern: $DL_PATTERN)"
+          mkdir -p simulations
+
+          gh release download "$RELEASE" \
+            --repo ncsizemore/jheem-simulations \
+            --pattern "$DL_PATTERN" \
+            --dir ./simulations
+
+          echo "📦 Downloaded files:"
+          ls -lh ./simulations/
+
+          # Keep only the base file (contains "base" or "noint")
+          for f in ./simulations/*.Rdata; do
+            [ -f "$f" ] || continue
+            filename=$(basename "$f")
+            if [[ "$filename" != *"base"* ]] && [[ "$filename" != *"noint"* ]]; then
+              echo "  Removing non-base file: $filename"
+              rm "$f"
+            fi
+          done
+
+          echo "✅ Base simset ready:"
+          ls -lh ./simulations/
+
+      - name: Login to GitHub Container Registry
+        uses: docker/login-action@v3
+        with:
+          registry: ghcr.io
+          username: ${{ github.actor }}
+          password: ${{ secrets.GITHUB_TOKEN }}
+
+      - name: Checkout jheem-portal (for aggregation scripts)
+        uses: actions/checkout@v4
+        with:
+          repository: ncsizemore/jheem-portal
+          path: portal
+
+      - name: Setup Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+
+      - name: Install portal dependencies
+        working-directory: portal
+        run: npm ci
+
+      - name: Run custom simulation
+        run: |
+          echo "🚀 Running custom simulation for ${{ inputs.location }}..."
+          echo "   Scenario: ${{ steps.config.outputs.scenario_key }}"
+          echo ""
+
+          mkdir -p output
+
+          docker run --rm \
+            -v $(pwd)/simulations:/data:ro \
+            -v $(pwd)/output:/output \
+            -e LOCATION=${{ inputs.location }} \
+            -e SCENARIO_KEY=${{ steps.config.outputs.scenario_key }} \
+            -e SCENARIO_LABEL="${{ steps.config.outputs.scenario_label }}" \
+            -e OUTCOMES=${{ steps.config.outputs.outcomes }} \
+            -e STATISTICS=${{ steps.config.outputs.statistics }} \
+            -e FACETS=${{ steps.config.outputs.facets }} \
+            -e OUTPUT_DIR=/output \
+            ${{ steps.config.outputs.env_flags }} \
+            ${{ steps.config.outputs.container_image }} \
+            custom
+
+          file_count=$(find output -name "*.json" 2>/dev/null | wc -l)
+          echo ""
+          echo "📊 Generated $file_count JSON files"
+
+          if [ "$file_count" -eq 0 ]; then
+            echo "❌ No files generated"
+            exit 1
+          fi
+
+          echo "✅ Custom simulation complete"
+
+      - name: Aggregate location data
+        working-directory: portal
+        run: |
+          echo "📊 Aggregating data for ${{ inputs.location }}..."
+
+          mkdir -p public/data
+
+          # Find the location directory in output
+          location_dir="../output/${{ inputs.location }}"
+          if [ ! -d "$location_dir" ]; then
+            echo "Looking for output directory..."
+            find ../output -type d -maxdepth 2
+            location_dir=$(find ../output -type d -name "${{ inputs.location }}" | head -1)
+          fi
+
+          echo "Using directory: $location_dir"
+          npx tsx scripts/aggregate-city-data.ts "$location_dir" "public/data/${{ inputs.location }}.json"
+
+          if [ -f "public/data/${{ inputs.location }}.json" ]; then
+            size=$(ls -lh "public/data/${{ inputs.location }}.json" | awk '{print $5}')
+            echo "✅ Created ${{ inputs.location }}.json ($size)"
+          else
+            echo "❌ Failed to create ${{ inputs.location }}.json"
+            exit 1
+          fi
+
+      - name: Upload to S3
+        if: inputs.dry_run != true
+        working-directory: portal
+        run: |
+          S3_BASE="${{ steps.config.outputs.s3_bucket }}/${{ steps.config.outputs.s3_path }}"
+          SCENARIO_KEY="${{ steps.config.outputs.scenario_key }}"
+          S3_DEST="s3://${S3_BASE}/custom/${{ inputs.location }}/${SCENARIO_KEY}.json"
+
+          echo "☁️ Uploading to $S3_DEST"
+
+          gzip -c "public/data/${{ inputs.location }}.json" > "public/data/${{ inputs.location }}.json.gz"
+
+          aws s3 cp "public/data/${{ inputs.location }}.json.gz" \
+            "$S3_DEST" \
+            --content-type "application/json" \
+            --content-encoding "gzip"
+
+          echo "✅ Uploaded to S3"
+
+      - name: Write status file (complete)
+        if: inputs.dry_run != true
+        run: |
+          STATUS_PATH="${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json"
+
+          echo '{"status":"complete","completedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
+            | aws s3 cp - "s3://${{ steps.config.outputs.s3_bucket }}/$STATUS_PATH" \
+              --content-type "application/json"
+
+          echo "✅ Status file updated: complete"
+
+      - name: Invalidate CloudFront cache
+        if: inputs.dry_run != true
+        run: |
+          S3_PATH="${{ steps.config.outputs.s3_path }}"
+          CF_PATH="/${S3_PATH#portal/}/custom/${{ inputs.location }}/*"
+
+          echo "🔄 Invalidating CloudFront cache for $CF_PATH"
+
+          aws cloudfront create-invalidation \
+            --distribution-id ${{ steps.config.outputs.cloudfront_distribution_id }} \
+            --paths "$CF_PATH" \
+            --output text
+
+          echo "✅ Cache invalidation requested"
+
+      - name: Skip S3 upload (dry run)
+        if: inputs.dry_run == true
+        run: |
+          echo "🔸 DRY RUN — Skipping S3 upload"
+          echo "Would upload to: custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}.json"
+
+      - name: Summary
+        if: always()
+        run: |
+          echo ""
+          echo "=========================================="
+          echo "📊 CUSTOM SIMULATION COMPLETE"
+          echo "=========================================="
+          echo ""
+          echo "Model: ${{ inputs.model_id }}"
+          echo "Location: ${{ inputs.location }}"
+          echo "Scenario key: ${{ steps.config.outputs.scenario_key }}"
+          echo "Scenario label: ${{ steps.config.outputs.scenario_label }}"
+          echo "Dry run: ${{ inputs.dry_run }}"
+          if [ "${{ inputs.dry_run }}" != "true" ]; then
+            echo ""
+            S3_PATH="${{ steps.config.outputs.s3_path }}"
+            echo "Data: https://d320iym4dtm9lj.cloudfront.net/${S3_PATH#portal/}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}.json"
+            echo "Status: https://d320iym4dtm9lj.cloudfront.net/${S3_PATH#portal/}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json"
+          fi
