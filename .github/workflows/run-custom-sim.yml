@@ -175,14 +175,27 @@ jobs:
 
       - name: Upload running status
         if: inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
         run: |
-          STATUS_PATH="${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json"
-
-          echo '{"status":"running","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
-            | aws s3 cp - "s3://${{ steps.config.outputs.s3_bucket }}/$STATUS_PATH" \
-              --content-type "application/json"
+          echo '{"status":"running","phase":"starting","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
 
           echo "📡 Status file written: $STATUS_PATH"
+
+      - name: Update status (downloading)
+        if: inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+        run: |
+          echo '{"status":"running","phase":"downloading","message":"Downloading base simulation data","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' \
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
 
       - name: Download base simset from GitHub Release
         env:
@@ -245,6 +258,17 @@ jobs:
         working-directory: portal
         run: npm ci
 
+      - name: Update status (simulating)
+        if: inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+        run: |
+          echo '{"status":"running","phase":"simulating","message":"Running simulation (typically 4-10 minutes)","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' \
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
+
       - name: Run custom simulation
         run: |
           echo "🚀 Running custom simulation for ${{ inputs.location }}..."
@@ -277,6 +301,17 @@ jobs:
           fi
 
           echo "✅ Custom simulation complete"
+
+      - name: Update status (extracting)
+        if: inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+        run: |
+          echo '{"status":"running","phase":"extracting","message":"Processing and aggregating results","startedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'"}' \
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
 
       - name: Aggregate location data
         working-directory: portal
@@ -325,12 +360,14 @@ jobs:
 
       - name: Write status file (complete)
         if: inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
         run: |
-          STATUS_PATH="${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json"
-
           echo '{"status":"complete","completedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
-            | aws s3 cp - "s3://${{ steps.config.outputs.s3_bucket }}/$STATUS_PATH" \
-              --content-type "application/json"
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
 
           echo "✅ Status file updated: complete"
 
@@ -354,6 +391,19 @@ jobs:
         run: |
           echo "🔸 DRY RUN — Skipping S3 upload"
           echo "Would upload to: custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}.json"
+
+      - name: Write status file (failed)
+        if: failure() && inputs.dry_run != true
+        env:
+          STATUS_PATH: ${{ steps.config.outputs.s3_path }}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}-status.json
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+        run: |
+          echo '{"status":"failed","failedAt":"'"$(date -u +%Y-%m-%dT%H:%M:%SZ)"'","location":"${{ inputs.location }}","scenarioKey":"${{ steps.config.outputs.scenario_key }}"}' \
+            | aws s3 cp - "s3://$S3_BUCKET/$STATUS_PATH" \
+              --content-type "application/json" \
+              --cache-control "no-cache, no-store, must-revalidate, max-age=0"
+
+          echo "❌ Status file updated: failed"
 
       - name: Summary
         if: always()
