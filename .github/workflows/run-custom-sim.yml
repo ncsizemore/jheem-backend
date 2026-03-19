@@ -262,6 +262,10 @@ jobs:
           echo "📊 Running batch extraction..."
 
           # Step 2: Extract data from simsets (reads from simulations/, writes JSON to output/)
+          # Some outcome/facet combinations may not exist in the model's ontology
+          # (e.g., 'risk' dimension for certain outcomes). The batch process exits
+          # non-zero on any errors, so we capture the exit code and check file count.
+          set +e
           docker run --rm \
             -v $(pwd)/output/simulations:/app/simulations:ro \
             -v $(pwd)/output:/output \
@@ -275,10 +279,12 @@ jobs:
             --output-dir /output/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }} \
             --output-mode data \
             --json-only
+          batch_exit=$?
+          set -e
 
           file_count=$(find output -name "*.json" 2>/dev/null | wc -l)
           echo ""
-          echo "📊 Generated $file_count JSON files"
+          echo "📊 Generated $file_count JSON files (batch exit code: $batch_exit)"
 
           if [ "$file_count" -eq 0 ]; then
             echo "❌ No files generated"
