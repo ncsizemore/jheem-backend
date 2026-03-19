@@ -29,7 +29,7 @@ on:
       container_image:
         description: 'Container image'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:2.2.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:2.2.1'
         type: string
       release:
         description: 'Simulation data release tag'

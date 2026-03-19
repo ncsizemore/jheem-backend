@@ -84,7 +84,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-model",
-      "version": "2.2.0",
+      "version": "2.2.1",
       "repository": "ncsizemore/jheem-ryan-white-container"
     },
 
