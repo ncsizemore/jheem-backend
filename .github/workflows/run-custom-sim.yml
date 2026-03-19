@@ -243,6 +243,7 @@ jobs:
 
           mkdir -p output
 
+          # Step 1: Run custom simulation (saves simsets to output/simulations/)
           docker run --rm \
             -v $(pwd)/simulations:/data:ro \
             -v $(pwd)/output:/output \
@@ -257,6 +258,24 @@ jobs:
             ${{ steps.config.outputs.container_image }} \
             custom
 
+          echo ""
+          echo "📊 Running batch extraction..."
+
+          # Step 2: Extract data from simsets (reads from simulations/, writes JSON to output/)
+          docker run --rm \
+            -v $(pwd)/output/simulations:/app/simulations:ro \
+            -v $(pwd)/output:/output \
+            ${{ steps.config.outputs.container_image }} \
+            batch \
+            --city ${{ inputs.location }} \
+            --scenarios ${{ steps.config.outputs.scenario_key }} \
+            --outcomes ${{ steps.config.outputs.outcomes }} \
+            --statistics ${{ steps.config.outputs.statistics }} \
+            --facets ${{ steps.config.outputs.facets }} \
+            --output-dir /output/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }} \
+            --output-mode data \
+            --json-only
+
           file_count=$(find output -name "*.json" 2>/dev/null | wc -l)
           echo ""
           echo "📊 Generated $file_count JSON files"
@@ -266,7 +285,7 @@ jobs:
             exit 1
           fi
 
-          echo "✅ Custom simulation complete"
+          echo "✅ Custom simulation and extraction complete"
 
       - name: Aggregate location data
         working-directory: portal
