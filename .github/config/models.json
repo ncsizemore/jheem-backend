@@ -250,6 +250,17 @@
     "workflow": {
       "maxParallel": 5,
       "includeIndividualSimulation": false
+    },
+
+    "customSimulation": {
+      "simulationScript": "simple_ryan_white.R",
+      "parameters": [
+        { "id": "adap_loss", "envVar": "ADAP_LOSS", "label": "ADAP suppression loss", "keyPrefix": "a", "default": 50, "unit": "%" },
+        { "id": "oahs_loss", "envVar": "OAHS_LOSS", "label": "OAHS suppression loss", "keyPrefix": "o", "default": 30, "unit": "%" },
+        { "id": "other_loss", "envVar": "OTHER_LOSS", "label": "Other suppression loss", "keyPrefix": "r", "default": 40, "unit": "%" }
+      ],
+      "facets": ["none", "age", "race", "sex", "risk"],
+      "statistics": ["mean.and.interval", "median.and.interval"]
     }
   },
 
