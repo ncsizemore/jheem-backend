@@ -6,6 +6,10 @@
 #
 # NOTE: Default values for container_image and release should match models.json.
 # See models.json _meta.syncNote for details.
+#
+# Container updated 2026-03-23 to dedicated AJPH image (container cleanup).
+# Not re-tested for batch generation — if issues arise, fall back to:
+#   ghcr.io/ncsizemore/jheem-ryan-white-model:2.1.0
 # =============================================================================
 
 name: Generate AJPH Data (11 States)
@@ -29,7 +33,7 @@ on:
       container_image:
         description: 'Container image'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-model:2.1.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-ajph:1.0.0'
         type: string
       release:
         description: 'Simulation data release tag'

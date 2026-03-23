@@ -6,6 +6,10 @@
 #
 # NOTE: Default values for container_image and release should match models.json.
 # See models.json _meta.syncNote for details.
+#
+# Container updated 2026-03-23 to v2.1.0 (container cleanup, base v1.3.0).
+# Not re-tested for batch generation — if issues arise, fall back to:
+#   ghcr.io/ncsizemore/jheem-ryan-white-croi:2.0.0
 # =============================================================================
 
 name: Generate CROI Data (30 States)
@@ -30,7 +34,7 @@ on:
       container_image:
         description: 'Container image'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-croi:2.0.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-croi:2.1.0'
         type: string
       release:
         description: 'Simulation data release tag'
