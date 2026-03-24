@@ -84,7 +84,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-msa",
-      "version": "1.0.0",
+      "version": "1.0.1",
       "repository": "ncsizemore/jheem-ryan-white-msa-container"
     },
 

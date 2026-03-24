@@ -33,7 +33,7 @@ on:
       container_image:
         description: 'Container image'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-msa:1.0.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-msa:1.0.1'
         type: string
       release:
         description: 'Simulation data release tag'

@@ -35,7 +35,7 @@ on:
       container_image:
         description: 'Container image to use'
         required: true
-        default: 'ghcr.io/ncsizemore/jheem-ryan-white-msa:1.0.0'
+        default: 'ghcr.io/ncsizemore/jheem-ryan-white-msa:1.0.1'
         type: string
       adap_loss:
         description: 'ADAP suppression loss (%)'
