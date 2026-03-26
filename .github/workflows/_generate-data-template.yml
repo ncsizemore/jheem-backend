@@ -238,23 +238,26 @@ jobs:
           aws-region: us-east-1
 
       # --- Download from S3 (for MSA cities) ---
+      # NOTE: S3 source paths assume simsets are stored at simulations/{model_id}/.
+      # No current model uses S3 as data source (all use GitHub-Release).
+      # If adding S3-sourced models, verify the S3 path matches the actual data location.
       - name: Download simulation data from S3
         if: needs.prepare.outputs.data_source_type == 'S3'
         run: |
           echo "📥 Downloading simulation data for ${{ matrix.location }} from S3"
 
-          mkdir -p simulations/ryan-white/base
-          mkdir -p simulations/ryan-white/prerun/${{ matrix.location }}
+          mkdir -p simulations/${{ inputs.model_id }}/base
+          mkdir -p simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}
 
-          aws s3 cp s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/ryan-white/base/${{ matrix.location }}_base.Rdata \
-            simulations/ryan-white/base/${{ matrix.location }}_base.Rdata
+          aws s3 cp s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/${{ inputs.model_id }}/base/${{ matrix.location }}_base.Rdata \
+            simulations/${{ inputs.model_id }}/base/${{ matrix.location }}_base.Rdata
 
-          aws s3 sync s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/ryan-white/prerun/${{ matrix.location }}/ \
-            simulations/ryan-white/prerun/${{ matrix.location }}/
+          aws s3 sync s3://${{ needs.prepare.outputs.s3_bucket }}/simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}/ \
+            simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}/
 
           echo "✅ Downloaded simulation data"
-          ls -la simulations/ryan-white/base/
-          ls -la simulations/ryan-white/prerun/${{ matrix.location }}/
+          ls -la simulations/${{ inputs.model_id }}/base/
+          ls -la simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}/
 
       # --- Download from GitHub Release (for state-level) ---
       - name: Download simulation data from GitHub Release
@@ -264,8 +267,8 @@ jobs:
         run: |
           echo "📥 Downloading simulation data for ${{ matrix.location }} from release ${{ needs.prepare.outputs.data_source_release }}"
 
-          mkdir -p simulations/ryan-white/base
-          mkdir -p simulations/ryan-white/prerun/${{ matrix.location }}
+          mkdir -p simulations/${{ inputs.model_id }}/base
+          mkdir -p simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}
           mkdir -p tmp-download
 
           # Determine file pattern based on model
@@ -302,7 +305,7 @@ jobs:
 
             # Check for base/baseline file
             if [[ "$filename" == *"_base.Rdata" ]] || [[ "$filename" == *"_${BASE_PATTERN}."* ]]; then
-              mv "$f" "simulations/ryan-white/base/${{ matrix.location }}_base.Rdata"
+              mv "$f" "simulations/${{ inputs.model_id }}/base/${{ matrix.location }}_base.Rdata"
               echo "✓ Base: $filename"
               matched=true
               continue
@@ -320,7 +323,7 @@ jobs:
 
               for pattern in $patterns; do
                 if [[ "$filename" == *"$pattern"* ]]; then
-                  mv "$f" "simulations/ryan-white/prerun/${{ matrix.location }}/${scenario}.Rdata"
+                  mv "$f" "simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}/${scenario}.Rdata"
                   echo "✓ $scenario: $filename (matched '$pattern')"
                   matched=true
                   break 2
@@ -334,8 +337,8 @@ jobs:
           done
 
           echo "✅ Organized simulation data:"
-          ls -la simulations/ryan-white/base/
-          ls -la simulations/ryan-white/prerun/${{ matrix.location }}/
+          ls -la simulations/${{ inputs.model_id }}/base/
+          ls -la simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}/
 
       - name: Login to GitHub Container Registry
         uses: docker/login-action@v3
@@ -354,6 +357,7 @@ jobs:
           docker run --rm \
             -v $(pwd)/simulations:/app/simulations:ro \
             -v $(pwd)/output/${{ matrix.location }}:/output \
+            -e MODEL_ID=${{ inputs.model_id }} \
             ${{ needs.prepare.outputs.container_image }} \
             batch \
             --city ${{ matrix.location }} \

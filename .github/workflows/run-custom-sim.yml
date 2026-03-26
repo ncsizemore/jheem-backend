@@ -113,6 +113,9 @@ jobs:
           echo "env_flags=$ENV_FLAGS" >> $GITHUB_OUTPUT
 
           # --- Read other config ---
+          SIMULATION_SCRIPT=$(jq -r ".\"$MODEL_ID\".customSimulation.simulationScript" $CONFIG_FILE)
+          echo "simulation_script=$SIMULATION_SCRIPT" >> $GITHUB_OUTPUT
+
           OUTCOMES=$(jq -r ".\"$MODEL_ID\".outcomes | join(\",\")" $CONFIG_FILE)
           echo "outcomes=$OUTCOMES" >> $GITHUB_OUTPUT
 
@@ -248,11 +251,10 @@ jobs:
             -v $(pwd)/simulations:/data:ro \
             -v $(pwd)/output:/output \
             -e LOCATION=${{ inputs.location }} \
+            -e MODEL_ID=${{ inputs.model_id }} \
+            -e SIMULATION_SCRIPT=${{ steps.config.outputs.simulation_script }} \
             -e SCENARIO_KEY=${{ steps.config.outputs.scenario_key }} \
             -e SCENARIO_LABEL="${{ steps.config.outputs.scenario_label }}" \
-            -e OUTCOMES=${{ steps.config.outputs.outcomes }} \
-            -e STATISTICS=${{ steps.config.outputs.statistics }} \
-            -e FACETS=${{ steps.config.outputs.facets }} \
             -e OUTPUT_DIR=/output \
             ${{ steps.config.outputs.env_flags }} \
             ${{ steps.config.outputs.container_image }} \
@@ -269,6 +271,7 @@ jobs:
           docker run --rm \
             -v $(pwd)/output/simulations:/app/simulations:ro \
             -v $(pwd)/output:/output \
+            -e MODEL_ID=${{ inputs.model_id }} \
             ${{ steps.config.outputs.container_image }} \
             batch \
             --city ${{ inputs.location }} \
