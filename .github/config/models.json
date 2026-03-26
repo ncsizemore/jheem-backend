@@ -467,9 +467,19 @@
       "all": ["mean.and.interval", "median.and.interval"]
     },
 
+    "customSimulation": {
+      "simulationScript": "simple_cdc_testing.R",
+      "parameters": [
+        { "id": "testing_reduction", "envVar": "TESTING_REDUCTION", "label": "CDC testing reduction", "keyPrefix": "t", "default": 100, "unit": "%" },
+        { "id": "proportion_tested_regardless", "envVar": "PROPORTION_TESTED", "label": "Continue testing without CDC", "keyPrefix": "p", "default": 50, "unit": "%" }
+      ],
+      "facets": ["none", "age", "race", "sex", "risk"],
+      "statistics": ["mean.and.interval", "median.and.interval"]
+    },
+
     "container": {
-      "image": "ghcr.io/ncsizemore/jheem-cdc-testing-model",
-      "version": "2.0.0",
+      "image": "ghcr.io/ncsizemore/jheem-cdc-testing",
+      "version": "2.1.1",
       "repository": "ncsizemore/jheem-cdc-testing-container"
     },
 
