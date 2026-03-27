@@ -479,7 +479,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-cdc-testing",
-      "version": "2.1.1",
+      "version": "2.1.2",
       "repository": "ncsizemore/jheem-cdc-testing-container"
     },
 
