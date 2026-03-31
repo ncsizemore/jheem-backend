@@ -18,7 +18,7 @@
 # =============================================================================
 
 name: Run Custom Simulation
-run-name: "custom-sim: ${{ inputs.location }} ${{ inputs.parameters }}"
+run-name: "custom-sim: ${{ inputs.model_id }} ${{ inputs.location }} ${{ inputs.parameters }}"
 
 on:
   workflow_dispatch:
