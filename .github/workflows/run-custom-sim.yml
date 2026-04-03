@@ -402,44 +402,25 @@ jobs:
         if: inputs.email != '' && inputs.dry_run != true
         continue-on-error: true
         env:
-          GMAIL_ADDRESS: ${{ secrets.GMAIL_ADDRESS }}
-          GMAIL_APP_PASSWORD: ${{ secrets.GMAIL_APP_PASSWORD }}
+          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
         run: |
           PORTAL_URL="${{ steps.config.outputs.portal_url }}"
           LOCATION="${{ inputs.location }}"
           SCENARIO_LABEL="${{ steps.config.outputs.scenario_label }}"
 
-          curl --silent --show-error \
-            --url "smtps://smtp.gmail.com:465" \
-            --ssl-reqd \
-            --mail-from "$GMAIL_ADDRESS" \
-            --mail-rcpt "${{ inputs.email }}" \
-            --user "$GMAIL_ADDRESS:$GMAIL_APP_PASSWORD" \
-            --upload-file - <<EMAILEOF
-          From: JHEEM Notifications <$GMAIL_ADDRESS>
-          To: ${{ inputs.email }}
-          Subject: Your JHEEM simulation is ready
-          Content-Type: text/html; charset=UTF-8
-          MIME-Version: 1.0
+          # Build HTML body
+          HTML_BODY="<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\"><h2 style=\"color: #1e293b; margin-bottom: 16px;\">Your simulation is ready</h2><p style=\"color: #475569; line-height: 1.6;\">Your custom simulation for <strong>${LOCATION}</strong> has completed.</p><p style=\"color: #64748b; font-size: 14px;\">${SCENARIO_LABEL}</p><p style=\"margin: 24px 0;\"><a href=\"${PORTAL_URL}\" style=\"display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500;\">View Results</a></p><p style=\"color: #94a3b8; font-size: 12px; margin-top: 32px;\">This is an automated notification from <a href=\"https://jheem.org\" style=\"color: #94a3b8;\">jheem.org</a>.</p></div>"
 
-          <div style="font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;">
-            <h2 style="color: #1e293b; margin-bottom: 16px;">Your simulation is ready</h2>
-            <p style="color: #475569; line-height: 1.6;">
-              Your custom simulation for <strong>${LOCATION}</strong> has completed.
-            </p>
-            <p style="color: #64748b; font-size: 14px;">
-              ${SCENARIO_LABEL}
-            </p>
-            <p style="margin: 24px 0;">
-              <a href="${PORTAL_URL}" style="display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500;">
-                View Results
-              </a>
-            </p>
-            <p style="color: #94a3b8; font-size: 12px; margin-top: 32px;">
-              This is an automated notification from <a href="https://jheem.org" style="color: #94a3b8;">jheem.org</a>.
-            </p>
-          </div>
-          EMAILEOF
+          curl --silent --show-error --fail \
+            -X POST https://api.resend.com/emails \
+            -H "Authorization: Bearer $RESEND_API_KEY" \
+            -H "Content-Type: application/json" \
+            -d "$(jq -n \
+              --arg to "${{ inputs.email }}" \
+              --arg subject "Your JHEEM simulation is ready" \
+              --arg html "$HTML_BODY" \
+              '{from: "JHEEM Notifications <notifications@jheem.org>", to: [$to], subject: $subject, html: $html}'
+            )"
 
           echo "📧 Notification email sent to ${{ inputs.email }}"
 
