@@ -66,10 +66,14 @@ jobs:
 
       - name: Load model configuration
         id: config
+        env:
+          MODEL_ID: ${{ inputs.model_id }}
+          LOCATION: ${{ inputs.location }}
+          PARAMS: ${{ inputs.parameters }}
+          CONTAINER_IMAGE_OVERRIDE: ${{ inputs.container_image_override }}
+          RELEASE_OVERRIDE: ${{ inputs.release_override }}
         run: |
           CONFIG_FILE=".github/config/models.json"
-          MODEL_ID="${{ inputs.model_id }}"
-          PARAMS='${{ inputs.parameters }}'
 
           echo "📋 Loading configuration for model: $MODEL_ID"
 
@@ -100,6 +104,15 @@ jobs:
 
             # Get value from user params, fall back to default
             VALUE=$(echo "$PARAMS" | jq -r ".${PARAM_ID} // $DEFAULT")
+
+            # Defense in depth: parameter values must be integers 0-100.
+            # The portal API already validates this, but the workflow
+            # cannot trust the caller (workflow_dispatch is callable
+            # directly with sufficient permissions).
+            if ! [[ "$VALUE" =~ ^[0-9]+$ ]] || [ "$VALUE" -lt 0 ] || [ "$VALUE" -gt 100 ]; then
+              echo "❌ Invalid value for $PARAM_ID: '$VALUE' (must be integer 0-100)"
+              exit 1
+            fi
 
             # Build scenario key part
             if [ -n "$SCENARIO_KEY" ]; then
@@ -132,8 +145,8 @@ jobs:
 
           # Container image
           CONFIG_CONTAINER=$(jq -r ".\"$MODEL_ID\".container.image + \":\" + .\"$MODEL_ID\".container.version" $CONFIG_FILE)
-          if [ -n "${{ inputs.container_image_override }}" ]; then
-            CONTAINER_IMAGE="${{ inputs.container_image_override }}"
+          if [ -n "$CONTAINER_IMAGE_OVERRIDE" ]; then
+            CONTAINER_IMAGE="$CONTAINER_IMAGE_OVERRIDE"
           else
             CONTAINER_IMAGE="$CONFIG_CONTAINER"
           fi
@@ -142,8 +155,8 @@ jobs:
           # Data source
           CONFIG_RELEASE=$(jq -r ".\"$MODEL_ID\".dataSource.release" $CONFIG_FILE)
           DATA_SOURCE_PATTERN=$(jq -r ".\"$MODEL_ID\".dataSource.filePattern // empty" $CONFIG_FILE)
-          if [ -n "${{ inputs.release_override }}" ]; then
-            RELEASE="${{ inputs.release_override }}"
+          if [ -n "$RELEASE_OVERRIDE" ]; then
+            RELEASE="$RELEASE_OVERRIDE"
           else
             RELEASE="$CONFIG_RELEASE"
           fi
@@ -177,7 +190,7 @@ jobs:
             else
               SEP="?"
             fi
-            PORTAL_URL="https://jheem.org${PORTAL_BASE}${SEP}loc=${{ inputs.location }}"
+            PORTAL_URL="https://jheem.org${PORTAL_BASE}${SEP}loc=${LOCATION}"
             # Add parameter key prefixes to URL
             for i in $(seq 0 $((PARAM_COUNT - 1))); do
               KEY_PREFIX=$(echo "$PARAM_DEFS" | jq -r ".[$i].keyPrefix")
@@ -195,7 +208,7 @@ jobs:
           echo "=========================================="
           echo "Custom simulation configuration"
           echo "=========================================="
-          echo "  Location:      ${{ inputs.location }}"
+          echo "  Location:      $LOCATION"
           echo "  Scenario key:  $SCENARIO_KEY"
           echo "  Scenario label: $SCENARIO_LABEL"
           echo "  Container:     $CONTAINER_IMAGE"
@@ -203,7 +216,7 @@ jobs:
           echo "  Outcomes:      $OUTCOMES"
           echo "  Statistics:    $STATISTICS"
           echo "  Facets:        $FACETS"
-          echo "  S3 path:       s3://$S3_BUCKET/$S3_PATH/custom/${{ inputs.location }}/$SCENARIO_KEY.json"
+          echo "  S3 path:       s3://$S3_BUCKET/$S3_PATH/custom/$LOCATION/$SCENARIO_KEY.json"
 
       - name: Configure AWS credentials
         if: inputs.dry_run != true
@@ -216,11 +229,10 @@ jobs:
       - name: Download base simset from GitHub Release
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          LOCATION: ${{ inputs.location }}
+          RELEASE: ${{ steps.config.outputs.release }}
+          PATTERN: ${{ steps.config.outputs.data_source_pattern }}
         run: |
-          LOCATION="${{ inputs.location }}"
-          RELEASE="${{ steps.config.outputs.release }}"
-          PATTERN="${{ steps.config.outputs.data_source_pattern }}"
-
           # Build download pattern
           if [ -n "$PATTERN" ]; then
             DL_PATTERN=$(echo "$PATTERN" | sed "s/{STATE}/$LOCATION/g" | sed "s/{LOC}/$LOCATION/g")
@@ -275,25 +287,39 @@ jobs:
         run: npm ci
 
       - name: Run custom simulation
+        env:
+          LOCATION: ${{ inputs.location }}
+          MODEL_ID: ${{ inputs.model_id }}
+          SIMULATION_SCRIPT: ${{ steps.config.outputs.simulation_script }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
+          SCENARIO_LABEL: ${{ steps.config.outputs.scenario_label }}
+          ENV_FLAGS: ${{ steps.config.outputs.env_flags }}
+          CONTAINER_IMAGE: ${{ steps.config.outputs.container_image }}
+          OUTCOMES: ${{ steps.config.outputs.outcomes }}
+          STATISTICS: ${{ steps.config.outputs.statistics }}
+          FACETS: ${{ steps.config.outputs.facets }}
         run: |
-          echo "🚀 Running custom simulation for ${{ inputs.location }}..."
-          echo "   Scenario: ${{ steps.config.outputs.scenario_key }}"
+          echo "🚀 Running custom simulation for $LOCATION..."
+          echo "   Scenario: $SCENARIO_KEY"
           echo ""
 
           mkdir -p output
 
           # Step 1: Run custom simulation (saves simsets to output/simulations/)
+          # $ENV_FLAGS is intentionally unquoted so the shell word-splits it
+          # into separate -e flags. Its values were validated as integers 0-100
+          # in the "Load model configuration" step.
           docker run --rm \
-            -v $(pwd)/simulations:/data:ro \
-            -v $(pwd)/output:/output \
-            -e LOCATION=${{ inputs.location }} \
-            -e MODEL_ID=${{ inputs.model_id }} \
-            -e SIMULATION_SCRIPT=${{ steps.config.outputs.simulation_script }} \
-            -e SCENARIO_KEY=${{ steps.config.outputs.scenario_key }} \
-            -e SCENARIO_LABEL="${{ steps.config.outputs.scenario_label }}" \
-            -e OUTPUT_DIR=/output \
-            ${{ steps.config.outputs.env_flags }} \
-            ${{ steps.config.outputs.container_image }} \
+            -v "$(pwd)/simulations:/data:ro" \
+            -v "$(pwd)/output:/output" \
+            -e "LOCATION=$LOCATION" \
+            -e "MODEL_ID=$MODEL_ID" \
+            -e "SIMULATION_SCRIPT=$SIMULATION_SCRIPT" \
+            -e "SCENARIO_KEY=$SCENARIO_KEY" \
+            -e "SCENARIO_LABEL=$SCENARIO_LABEL" \
+            -e "OUTPUT_DIR=/output" \
+            $ENV_FLAGS \
+            "$CONTAINER_IMAGE" \
             custom
 
           echo ""
@@ -305,17 +331,17 @@ jobs:
           # non-zero on any errors, so we capture the exit code and check file count.
           set +e
           docker run --rm \
-            -v $(pwd)/output/simulations:/app/simulations:ro \
-            -v $(pwd)/output:/output \
-            -e MODEL_ID=${{ inputs.model_id }} \
-            ${{ steps.config.outputs.container_image }} \
+            -v "$(pwd)/output/simulations:/app/simulations:ro" \
+            -v "$(pwd)/output:/output" \
+            -e "MODEL_ID=$MODEL_ID" \
+            "$CONTAINER_IMAGE" \
             batch \
-            --city ${{ inputs.location }} \
-            --scenarios ${{ steps.config.outputs.scenario_key }} \
-            --outcomes ${{ steps.config.outputs.outcomes }} \
-            --statistics ${{ steps.config.outputs.statistics }} \
-            --facets ${{ steps.config.outputs.facets }} \
-            --output-dir /output/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }} \
+            --city "$LOCATION" \
+            --scenarios "$SCENARIO_KEY" \
+            --outcomes "$OUTCOMES" \
+            --statistics "$STATISTICS" \
+            --facets "$FACETS" \
+            --output-dir "/output/$LOCATION/$SCENARIO_KEY" \
             --output-mode data \
             --json-only
           batch_exit=$?
@@ -334,43 +360,48 @@ jobs:
 
       - name: Aggregate location data
         working-directory: portal
+        env:
+          LOCATION: ${{ inputs.location }}
         run: |
-          echo "📊 Aggregating data for ${{ inputs.location }}..."
+          echo "📊 Aggregating data for $LOCATION..."
 
           mkdir -p public/data
 
           # Find the location directory in output
-          location_dir="../output/${{ inputs.location }}"
+          location_dir="../output/$LOCATION"
           if [ ! -d "$location_dir" ]; then
             echo "Looking for output directory..."
             find ../output -type d -maxdepth 2
-            location_dir=$(find ../output -type d -name "${{ inputs.location }}" | head -1)
+            location_dir=$(find ../output -type d -name "$LOCATION" | head -1)
           fi
 
           echo "Using directory: $location_dir"
-          npx tsx scripts/aggregate-city-data.ts "$location_dir" "public/data/${{ inputs.location }}.json"
+          npx tsx scripts/aggregate-city-data.ts "$location_dir" "public/data/$LOCATION.json"
 
-          if [ -f "public/data/${{ inputs.location }}.json" ]; then
-            size=$(ls -lh "public/data/${{ inputs.location }}.json" | awk '{print $5}')
-            echo "✅ Created ${{ inputs.location }}.json ($size)"
+          if [ -f "public/data/$LOCATION.json" ]; then
+            size=$(ls -lh "public/data/$LOCATION.json" | awk '{print $5}')
+            echo "✅ Created $LOCATION.json ($size)"
           else
-            echo "❌ Failed to create ${{ inputs.location }}.json"
+            echo "❌ Failed to create $LOCATION.json"
             exit 1
           fi
 
       - name: Upload to S3
         if: inputs.dry_run != true
         working-directory: portal
+        env:
+          LOCATION: ${{ inputs.location }}
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+          S3_PATH: ${{ steps.config.outputs.s3_path }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
         run: |
-          S3_BASE="${{ steps.config.outputs.s3_bucket }}/${{ steps.config.outputs.s3_path }}"
-          SCENARIO_KEY="${{ steps.config.outputs.scenario_key }}"
-          S3_DEST="s3://${S3_BASE}/custom/${{ inputs.location }}/${SCENARIO_KEY}.json"
+          S3_DEST="s3://${S3_BUCKET}/${S3_PATH}/custom/${LOCATION}/${SCENARIO_KEY}.json"
 
           echo "☁️ Uploading to $S3_DEST"
 
-          gzip -c "public/data/${{ inputs.location }}.json" > "public/data/${{ inputs.location }}.json.gz"
+          gzip -c "public/data/${LOCATION}.json" > "public/data/${LOCATION}.json.gz"
 
-          aws s3 cp "public/data/${{ inputs.location }}.json.gz" \
+          aws s3 cp "public/data/${LOCATION}.json.gz" \
             "$S3_DEST" \
             --content-type "application/json" \
             --content-encoding "gzip"
@@ -379,14 +410,17 @@ jobs:
 
       - name: Invalidate CloudFront cache
         if: inputs.dry_run != true
+        env:
+          LOCATION: ${{ inputs.location }}
+          S3_PATH: ${{ steps.config.outputs.s3_path }}
+          CF_DIST_ID: ${{ steps.config.outputs.cloudfront_distribution_id }}
         run: |
-          S3_PATH="${{ steps.config.outputs.s3_path }}"
-          CF_PATH="/${S3_PATH#portal/}/custom/${{ inputs.location }}/*"
+          CF_PATH="/${S3_PATH#portal/}/custom/${LOCATION}/*"
 
           echo "🔄 Invalidating CloudFront cache for $CF_PATH"
 
           aws cloudfront create-invalidation \
-            --distribution-id ${{ steps.config.outputs.cloudfront_distribution_id }} \
+            --distribution-id "$CF_DIST_ID" \
             --paths "$CF_PATH" \
             --output text
 
@@ -394,20 +428,23 @@ jobs:
 
       - name: Skip S3 upload (dry run)
         if: inputs.dry_run == true
+        env:
+          LOCATION: ${{ inputs.location }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
         run: |
           echo "🔸 DRY RUN — Skipping S3 upload"
-          echo "Would upload to: custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}.json"
+          echo "Would upload to: custom/${LOCATION}/${SCENARIO_KEY}.json"
 
       - name: Send email notification
         if: inputs.email != '' && inputs.dry_run != true
         continue-on-error: true
         env:
           RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
+          EMAIL: ${{ inputs.email }}
+          LOCATION: ${{ inputs.location }}
+          PORTAL_URL: ${{ steps.config.outputs.portal_url }}
+          SCENARIO_LABEL: ${{ steps.config.outputs.scenario_label }}
         run: |
-          PORTAL_URL="${{ steps.config.outputs.portal_url }}"
-          LOCATION="${{ inputs.location }}"
-          SCENARIO_LABEL="${{ steps.config.outputs.scenario_label }}"
-
           # Build HTML body
           HTML_BODY="<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\"><h2 style=\"color: #1e293b; margin-bottom: 16px;\">Your simulation is ready</h2><p style=\"color: #475569; line-height: 1.6;\">Your custom simulation for <strong>${LOCATION}</strong> has completed.</p><p style=\"color: #64748b; font-size: 14px;\">${SCENARIO_LABEL}</p><p style=\"margin: 24px 0;\"><a href=\"${PORTAL_URL}\" style=\"display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500;\">View Results</a></p><p style=\"color: #94a3b8; font-size: 12px; margin-top: 32px;\">This is an automated notification from <a href=\"https://jheem.org\" style=\"color: #94a3b8;\">jheem.org</a>.</p></div>"
 
@@ -416,29 +453,35 @@ jobs:
             -H "Authorization: Bearer $RESEND_API_KEY" \
             -H "Content-Type: application/json" \
             -d "$(jq -n \
-              --arg to "${{ inputs.email }}" \
+              --arg to "$EMAIL" \
               --arg subject "Your JHEEM simulation is ready" \
               --arg html "$HTML_BODY" \
               '{from: "JHEEM Notifications <notifications@jheem.org>", to: [$to], subject: $subject, html: $html}'
             )"
 
-          echo "📧 Notification email sent to ${{ inputs.email }}"
+          echo "📧 Notification email sent to $EMAIL"
 
       - name: Summary
         if: always()
+        env:
+          MODEL_ID: ${{ inputs.model_id }}
+          LOCATION: ${{ inputs.location }}
+          DRY_RUN: ${{ inputs.dry_run }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
+          SCENARIO_LABEL: ${{ steps.config.outputs.scenario_label }}
+          S3_PATH: ${{ steps.config.outputs.s3_path }}
         run: |
           echo ""
           echo "=========================================="
           echo "Custom Simulation Summary"
           echo "=========================================="
           echo ""
-          echo "Model: ${{ inputs.model_id }}"
-          echo "Location: ${{ inputs.location }}"
-          echo "Scenario key: ${{ steps.config.outputs.scenario_key }}"
-          echo "Scenario label: ${{ steps.config.outputs.scenario_label }}"
-          echo "Dry run: ${{ inputs.dry_run }}"
-          if [ "${{ inputs.dry_run }}" != "true" ]; then
+          echo "Model: $MODEL_ID"
+          echo "Location: $LOCATION"
+          echo "Scenario key: $SCENARIO_KEY"
+          echo "Scenario label: $SCENARIO_LABEL"
+          echo "Dry run: $DRY_RUN"
+          if [ "$DRY_RUN" != "true" ]; then
             echo ""
-            S3_PATH="${{ steps.config.outputs.s3_path }}"
-            echo "Data: https://d320iym4dtm9lj.cloudfront.net/${S3_PATH#portal/}/custom/${{ inputs.location }}/${{ steps.config.outputs.scenario_key }}.json"
+            echo "Data: https://d320iym4dtm9lj.cloudfront.net/${S3_PATH#portal/}/custom/${LOCATION}/${SCENARIO_KEY}.json"
           fi
