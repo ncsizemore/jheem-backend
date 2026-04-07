@@ -284,6 +284,14 @@ jobs:
 
       - name: Install portal dependencies
         working-directory: portal
+        # GITHUB_TOKEN is needed by the portal's postinstall (sync-config.ts)
+        # to fetch models.json from this (now-private) repo via the
+        # authenticated GitHub Contents API. The runner-issued token has
+        # contents:read on its own repo by default, which is exactly what
+        # the script needs. Passed via env: (not interpolated into the
+        # shell body) for the same reason all the other secrets are.
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
         run: npm ci
 
       - name: Run custom simulation
