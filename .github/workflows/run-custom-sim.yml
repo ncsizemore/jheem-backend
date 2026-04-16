@@ -46,11 +46,6 @@ on:
         required: false
         default: ''
         type: string
-      email:
-        description: 'Email address to notify when simulation completes (optional)'
-        required: false
-        default: ''
-        type: string
       dry_run:
         description: 'Skip S3 upload (for testing)'
         required: false
@@ -172,37 +167,6 @@ jobs:
           # CloudFront
           CF_DIST_ID=$(jq -r "._infrastructure.cloudfrontDistributionId" $CONFIG_FILE)
           echo "cloudfront_distribution_id=$CF_DIST_ID" >> $GITHUB_OUTPUT
-
-          # Portal URL for email notifications
-          case "$MODEL_ID" in
-            ryan-white-msa)       PORTAL_BASE="/ryan-white/custom" ;;
-            ryan-white-state-ajph) PORTAL_BASE="/ryan-white-state-level/custom?model=ajph" ;;
-            ryan-white-state-croi) PORTAL_BASE="/ryan-white-state-level/custom?model=croi" ;;
-            cdc-testing)          PORTAL_BASE="/cdc-testing/custom" ;;
-            *)                    PORTAL_BASE="" ;;
-          esac
-
-          # Build full URL with location and parameter query params
-          if [ -n "$PORTAL_BASE" ]; then
-            # Determine separator (? or &) based on whether base already has query params
-            if [[ "$PORTAL_BASE" == *"?"* ]]; then
-              SEP="&"
-            else
-              SEP="?"
-            fi
-            PORTAL_URL="https://jheem.org${PORTAL_BASE}${SEP}loc=${LOCATION}"
-            # Add parameter key prefixes to URL
-            for i in $(seq 0 $((PARAM_COUNT - 1))); do
-              KEY_PREFIX=$(echo "$PARAM_DEFS" | jq -r ".[$i].keyPrefix")
-              PARAM_ID=$(echo "$PARAM_DEFS" | jq -r ".[$i].id")
-              DEFAULT=$(echo "$PARAM_DEFS" | jq -r ".[$i].default")
-              VALUE=$(echo "$PARAMS" | jq -r ".${PARAM_ID} // $DEFAULT")
-              PORTAL_URL="${PORTAL_URL}&${KEY_PREFIX}=${VALUE}"
-            done
-          else
-            PORTAL_URL=""
-          fi
-          echo "portal_url=$PORTAL_URL" >> $GITHUB_OUTPUT
 
           echo ""
           echo "=========================================="
@@ -443,31 +407,33 @@ jobs:
           echo "🔸 DRY RUN — Skipping S3 upload"
           echo "Would upload to: custom/${LOCATION}/${SCENARIO_KEY}.json"
 
-      - name: Send email notification
-        if: inputs.email != '' && inputs.dry_run != true
+      - name: Notify completion
+        # Calls the portal, which drains any queued email notifications
+        # for this scenario and sends them via Resend. Email never
+        # transits this workflow — see jheem-portal/src/lib/notify.ts
+        # for the stash/drain design. continue-on-error so a transient
+        # portal failure does not mark the whole run as failed.
+        if: success() && inputs.dry_run != true
         continue-on-error: true
         env:
-          RESEND_API_KEY: ${{ secrets.RESEND_API_KEY }}
-          EMAIL: ${{ inputs.email }}
+          NOTIFY_SECRET: ${{ secrets.NOTIFY_SECRET }}
+          MODEL_ID: ${{ inputs.model_id }}
           LOCATION: ${{ inputs.location }}
-          PORTAL_URL: ${{ steps.config.outputs.portal_url }}
-          SCENARIO_LABEL: ${{ steps.config.outputs.scenario_label }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
         run: |
-          # Build HTML body
-          HTML_BODY="<div style=\"font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif; max-width: 600px; margin: 0 auto; padding: 20px;\"><h2 style=\"color: #1e293b; margin-bottom: 16px;\">Your simulation is ready</h2><p style=\"color: #475569; line-height: 1.6;\">Your custom simulation for <strong>${LOCATION}</strong> has completed.</p><p style=\"color: #64748b; font-size: 14px;\">${SCENARIO_LABEL}</p><p style=\"margin: 24px 0;\"><a href=\"${PORTAL_URL}\" style=\"display: inline-block; background-color: #2563eb; color: white; padding: 12px 24px; border-radius: 8px; text-decoration: none; font-weight: 500;\">View Results</a></p><p style=\"color: #94a3b8; font-size: 12px; margin-top: 32px;\">This is an automated notification from <a href=\"https://jheem.org\" style=\"color: #94a3b8;\">jheem.org</a>.</p></div>"
+          PAYLOAD=$(jq -n \
+            --arg modelId "$MODEL_ID" \
+            --arg location "$LOCATION" \
+            --arg scenarioKey "$SCENARIO_KEY" \
+            '{modelId: $modelId, location: $location, scenarioKey: $scenarioKey}')
 
-          curl --silent --show-error --fail \
-            -X POST https://api.resend.com/emails \
-            -H "Authorization: Bearer $RESEND_API_KEY" \
+          RESPONSE=$(curl --silent --show-error --fail \
+            -X POST https://jheem.org/api/custom-sim/notify \
+            -H "Authorization: Bearer $NOTIFY_SECRET" \
             -H "Content-Type: application/json" \
-            -d "$(jq -n \
-              --arg to "$EMAIL" \
-              --arg subject "Your JHEEM simulation is ready" \
-              --arg html "$HTML_BODY" \
-              '{from: "JHEEM Notifications <notifications@jheem.org>", to: [$to], subject: $subject, html: $html}'
-            )"
+            -d "$PAYLOAD")
 
-          echo "📧 Notification email sent to $EMAIL"
+          echo "🔔 Portal notify response: $RESPONSE"
 
       - name: Summary
         if: always()
