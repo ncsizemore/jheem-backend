@@ -289,7 +289,8 @@ jobs:
           #
           # Stdout is piped through a while-read loop that:
           #   - Echoes every line to the job log (preserving normal output)
-          #   - Parses "Progress: N of M" lines from the R container
+          #   - Parses "[Pp]rogress: N of M" lines from the R container
+          #     (container versions vary: "Simulation progress:" vs "Progress:")
           #   - Writes progress to Upstash Redis every 10th simulation
           #     (stays well within the 10,000 cmd/day free tier)
           #   - Uses a 30-minute TTL so stale progress auto-expires
@@ -307,7 +308,7 @@ jobs:
             "$CONTAINER_IMAGE" \
             custom 2>&1 | while IFS= read -r line; do
               echo "$line"
-              if [[ "$line" =~ Progress:\ ([0-9]+)\ of\ ([0-9]+) ]]; then
+              if [[ "$line" =~ [Pp]rogress:\ ([0-9]+)\ of\ ([0-9]+) ]]; then
                 current="${BASH_REMATCH[1]}"
                 total="${BASH_REMATCH[2]}"
                 if (( total > 0 && current % 10 == 0 )); then
