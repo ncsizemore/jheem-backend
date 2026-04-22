@@ -315,8 +315,11 @@ jobs:
                   pct=$((current * 100 / total))
                   # Fire-and-forget: Redis failure must not kill the sim,
                   # but log errors so misconfig is visible in the job log.
-                  body=$(printf '["SET","%s","{\"percent\":%d,\"simsComplete\":%d,\"simsTotal\":%d}","EX","1800"]' \
-                    "$PROGRESS_KEY" "$pct" "$current" "$total")
+                  # Use jq to build the body — shell printf mangles nested JSON quotes.
+                  body=$(jq -n -c \
+                    --arg key "$PROGRESS_KEY" \
+                    --arg val "{\"percent\":${pct},\"simsComplete\":${current},\"simsTotal\":${total}}" \
+                    '["SET", $key, $val, "EX", "1800"]')
                   resp=$(curl -s -w "\n%{http_code}" \
                     "${UPSTASH_REDIS_REST_URL}" \
                     -H "Authorization: Bearer ${UPSTASH_REDIS_REST_TOKEN}" \
