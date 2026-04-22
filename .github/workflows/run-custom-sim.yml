@@ -313,14 +313,22 @@ jobs:
                 total="${BASH_REMATCH[2]}"
                 if (( total > 0 && current % 10 == 0 )); then
                   pct=$((current * 100 / total))
-                  # Fire-and-forget: don't let a Redis write failure kill the sim.
-                  # Uses Upstash REST POST body format (JSON array of args).
+                  # Fire-and-forget: Redis failure must not kill the sim,
+                  # but log errors so misconfig is visible in the job log.
                   body=$(printf '["SET","%s","{\"percent\":%d,\"simsComplete\":%d,\"simsTotal\":%d}","EX","1800"]' \
                     "$PROGRESS_KEY" "$pct" "$current" "$total")
-                  curl -s -o /dev/null \
+                  resp=$(curl -s -w "\n%{http_code}" \
                     "${UPSTASH_REDIS_REST_URL}" \
                     -H "Authorization: Bearer ${UPSTASH_REDIS_REST_TOKEN}" \
-                    -d "$body" || true
+                    -d "$body" 2>&1) || true
+                  http_code=$(echo "$resp" | tail -1)
+                  if [ "$http_code" != "200" ] && [ "${progress_fail_logged:-}" != "1" ]; then
+                    echo "  [progress] Redis write failed (HTTP $http_code): $(echo "$resp" | head -1)" >&2
+                    progress_fail_logged=1
+                  elif [ "$http_code" = "200" ] && [ "${progress_ok_logged:-}" != "1" ]; then
+                    echo "  [progress] Redis write OK (key: $PROGRESS_KEY)"
+                    progress_ok_logged=1
+                  fi
                 fi
               fi
             done
