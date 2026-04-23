@@ -279,21 +279,21 @@ jobs:
 
           mkdir -p output
 
-          # Progress key for Upstash Redis — matches the portal status API lookup
+          # Progress key for Upstash Redis — portal status API reads this
           PROGRESS_KEY="progress:${MODEL_ID}:${LOCATION}:${SCENARIO_KEY}"
+          REPORTER="./scripts/report-progress.sh"
 
-          # Step 1: Run custom simulation (saves simsets to output/simulations/)
+          # Compute expected file count for extraction progress
+          # (outcomes × statistics × facets — some combos may not exist)
+          n_outcomes=$(echo "$OUTCOMES" | tr ',' '\n' | wc -l)
+          n_statistics=$(echo "$STATISTICS" | tr ',' '\n' | wc -l)
+          n_facets=$(echo "$FACETS" | tr ',' '\n' | wc -l)
+          expected_files=$((n_outcomes * n_statistics * n_facets))
+
+          # Step 1: Run custom simulation
           # $ENV_FLAGS is intentionally unquoted so the shell word-splits it
           # into separate -e flags. Its values were validated as integers 0-100
           # in the "Load model configuration" step.
-          #
-          # Stdout is piped through a while-read loop that:
-          #   - Echoes every line to the job log (preserving normal output)
-          #   - Parses "[Pp]rogress: N of M" lines from the R container
-          #     (container versions vary: "Simulation progress:" vs "Progress:")
-          #   - Writes progress to Upstash Redis every 10th simulation
-          #     (stays well within the 10,000 cmd/day free tier)
-          #   - Uses a 30-minute TTL so stale progress auto-expires
           set +e
           docker run --rm \
             -v "$(pwd)/simulations:/data:ro" \
@@ -306,35 +306,7 @@ jobs:
             -e "OUTPUT_DIR=/output" \
             $ENV_FLAGS \
             "$CONTAINER_IMAGE" \
-            custom 2>&1 | while IFS= read -r line; do
-              echo "$line"
-              if [[ "$line" =~ [Pp]rogress:\ ([0-9]+)\ of\ ([0-9]+) ]]; then
-                current="${BASH_REMATCH[1]}"
-                total="${BASH_REMATCH[2]}"
-                if (( total > 0 && current % 10 == 0 )); then
-                  pct=$((current * 100 / total))
-                  # Fire-and-forget: Redis failure must not kill the sim,
-                  # but log errors so misconfig is visible in the job log.
-                  # Use jq to build the body — shell printf mangles nested JSON quotes.
-                  body=$(jq -n -c \
-                    --arg key "$PROGRESS_KEY" \
-                    --arg val "{\"percent\":${pct},\"simsComplete\":${current},\"simsTotal\":${total}}" \
-                    '["SET", $key, $val, "EX", "1800"]')
-                  resp=$(curl -s -w "\n%{http_code}" \
-                    "${UPSTASH_REDIS_REST_URL}" \
-                    -H "Authorization: Bearer ${UPSTASH_REDIS_REST_TOKEN}" \
-                    -d "$body" 2>&1) || true
-                  http_code=$(echo "$resp" | tail -1)
-                  if [ "$http_code" != "200" ] && [ "${progress_fail_logged:-}" != "1" ]; then
-                    echo "  [progress] Redis write failed (HTTP $http_code): $(echo "$resp" | head -1)" >&2
-                    progress_fail_logged=1
-                  elif [ "$http_code" = "200" ] && [ "${progress_ok_logged:-}" != "1" ]; then
-                    echo "  [progress] Redis write OK (key: $PROGRESS_KEY)"
-                    progress_ok_logged=1
-                  fi
-                fi
-              fi
-            done
+            custom 2>&1 | "$REPORTER" sim "$PROGRESS_KEY"
           sim_exit=${PIPESTATUS[0]}
           set -e
           if [ "$sim_exit" -ne 0 ]; then
@@ -342,13 +314,11 @@ jobs:
             exit "$sim_exit"
           fi
 
+          # Step 2: Extract data from simsets
           echo ""
           echo "📊 Running batch extraction..."
+          "$REPORTER" phase "$PROGRESS_KEY" extracting "Generating data files..."
 
-          # Step 2: Extract data from simsets (reads from simulations/, writes JSON to output/)
-          # Some outcome/facet combinations may not exist in the model's ontology
-          # (e.g., 'risk' dimension for certain outcomes). The batch process exits
-          # non-zero on any errors, so we capture the exit code and check file count.
           set +e
           docker run --rm \
             -v "$(pwd)/output/simulations:/app/simulations:ro" \
@@ -363,8 +333,8 @@ jobs:
             --facets "$FACETS" \
             --output-dir "/output/$LOCATION/$SCENARIO_KEY" \
             --output-mode data \
-            --json-only
-          batch_exit=$?
+            --json-only 2>&1 | "$REPORTER" extract "$PROGRESS_KEY" "$expected_files"
+          batch_exit=${PIPESTATUS[0]}
           set -e
 
           file_count=$(find output -name "*.json" 2>/dev/null | wc -l)
@@ -376,6 +346,8 @@ jobs:
             exit 1
           fi
 
+          # Signal transition to upload phase
+          "$REPORTER" phase "$PROGRESS_KEY" uploading "Uploading results..."
           echo "✅ Custom simulation and extraction complete"
 
       - name: Aggregate location data
