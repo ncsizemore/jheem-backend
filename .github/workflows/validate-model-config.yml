@@ -4,6 +4,7 @@ on:
   pull_request:
     paths:
       - .github/config/models.json
+      - .github/workflows/run-custom-sim.yml
       - scripts/validate-model-config.mjs
       - .github/workflows/validate-model-config.yml
       - '.github/workflows/generate-*.yml'
@@ -11,6 +12,7 @@ on:
     branches: [master]
     paths:
       - .github/config/models.json
+      - .github/workflows/run-custom-sim.yml
       - scripts/validate-model-config.mjs
       - .github/workflows/validate-model-config.yml
       - '.github/workflows/generate-*.yml'

@@ -11,6 +11,7 @@ const mirroredWorkflowDefaults = {
   "ryan-white-state-croi": "../.github/workflows/generate-croi.yml",
   "cdc-testing": "../.github/workflows/generate-cdc-testing.yml",
 };
+const customSimulationWorkflowPath = "../.github/workflows/run-custom-sim.yml";
 
 function check(condition, message) {
   if (!condition) errors.push(message);
@@ -34,6 +35,20 @@ for (const [modelId, workflowPath] of Object.entries(mirroredWorkflowDefaults)) 
   check(
     workflow.includes(expectedDefault),
     `${modelId}: ${workflowPath} must mirror ${container.image}:${container.version}`,
+  );
+}
+
+const customSimulationWorkflow = readFileSync(
+  new URL(customSimulationWorkflowPath, import.meta.url),
+  "utf8",
+);
+for (const requiredFragment of [
+  ".metadata.custom_simulation = $custom_simulation",
+  ".metadata.custom_simulation == $custom_simulation",
+]) {
+  check(
+    customSimulationWorkflow.includes(requiredFragment),
+    `${customSimulationWorkflowPath}: missing fail-closed result metadata invariant: ${requiredFragment}`,
   );
 }
 

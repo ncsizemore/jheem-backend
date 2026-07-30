@@ -458,15 +458,35 @@ jobs:
           fi
 
           echo "Using directory: $location_dir"
-          npx tsx scripts/aggregate-city-data.ts "$location_dir" "public/data/$LOCATION.json"
+          output_file="public/data/$LOCATION.json"
+          npx tsx scripts/aggregate-city-data.ts "$location_dir" "$output_file"
 
-          if [ -f "public/data/$LOCATION.json" ]; then
-            size=$(ls -lh "public/data/$LOCATION.json" | awk '{print $5}')
-            echo "✅ Created $LOCATION.json ($size)"
-          else
+          if [ ! -f "$output_file" ]; then
             echo "❌ Failed to create $LOCATION.json"
             exit 1
           fi
+
+          # The backend owns this runtime provenance contract. Inject it here
+          # after aggregation so publication does not depend on the checked-out
+          # portal revision understanding CUSTOM_SIMULATION_METADATA.
+          if [ -n "$CUSTOM_SIMULATION_METADATA" ]; then
+            metadata_file=$(mktemp)
+            jq --compact-output \
+              --argjson custom_simulation "$CUSTOM_SIMULATION_METADATA" \
+              '(.metadata //= {}) |
+               .metadata.custom_simulation = $custom_simulation' \
+              "$output_file" > "$metadata_file"
+            mv "$metadata_file" "$output_file"
+
+            jq --exit-status \
+              --argjson custom_simulation "$CUSTOM_SIMULATION_METADATA" \
+              '.metadata.custom_simulation == $custom_simulation' \
+              "$output_file" >/dev/null
+            echo "✅ Embedded custom-simulation timing metadata"
+          fi
+
+          size=$(ls -lh "$output_file" | awk '{print $5}')
+          echo "✅ Created $LOCATION.json ($size)"
 
       - name: Upload to S3
         if: inputs.dry_run != true
