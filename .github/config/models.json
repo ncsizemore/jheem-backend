@@ -1,9 +1,9 @@
 {
   "$schema": "./models.schema.json",
   "_meta": {
-    "version": "1.1.0",
+    "version": "1.1.1",
     "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
-    "lastUpdated": "2026-02-06",
+    "lastUpdated": "2026-07-30",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
 
@@ -127,6 +127,15 @@
     },
 
     "customSimulation": {
+      "interventionType": "permanent_cessation",
+      "timing": {
+        "interventionStartTime": 2025.5,
+        "lossLagYears": 0.25,
+        "simulationStartYear": 2025,
+        "simulationEndYear": 2035,
+        "reportingStartYear": 2025,
+        "reportingEndYear": 2030
+      },
       "simulationScript": "simple_ryan_white.R",
       "parameters": [
         { "id": "adap_loss", "envVar": "ADAP_LOSS", "label": "ADAP suppression loss", "keyPrefix": "a", "default": 50, "unit": "%" },
@@ -253,6 +262,15 @@
     },
 
     "customSimulation": {
+      "interventionType": "permanent_cessation",
+      "timing": {
+        "interventionStartTime": 2025.5,
+        "lossLagYears": 0.25,
+        "simulationStartYear": 2025,
+        "simulationEndYear": 2035,
+        "reportingStartYear": 2025,
+        "reportingEndYear": 2030
+      },
       "simulationScript": "simple_ryan_white.R",
       "parameters": [
         { "id": "adap_loss", "envVar": "ADAP_LOSS", "label": "ADAP suppression loss", "keyPrefix": "a", "default": 50, "unit": "%" },
@@ -390,6 +408,15 @@
     },
 
     "customSimulation": {
+      "interventionType": "permanent_cessation",
+      "timing": {
+        "interventionStartTime": 2026.5,
+        "lossLagYears": 0.25,
+        "simulationStartYear": 2026,
+        "simulationEndYear": 2036,
+        "reportingStartYear": 2026,
+        "reportingEndYear": 2031
+      },
       "simulationScript": "simple_ryan_white.R",
       "parameters": [
         { "id": "adap_loss", "envVar": "ADAP_LOSS", "label": "ADAP suppression loss", "keyPrefix": "a", "default": 50, "unit": "%" },
