@@ -1,12 +1,12 @@
 # JHEEM Backend - Architecture Reference
 
-Central orchestration hub for JHEEM data generation workflows. Hosts `models.json` (the single source of truth for all model configurations) and reusable GitHub Actions workflows.
+Central orchestration hub for JHEEM data generation workflows. Hosts `models.json` (the source of truth for application/runtime/product model configuration) and reusable GitHub Actions workflows. Container build/test/provenance metadata is owned by `jheem-containers`; see `jheem-containers/docs/CONFIG-OWNERSHIP-AND-CONTRACTS.md` for the `models.json` / `models.yml` boundary.
 
 ## System Context
 
 ```
 jheem-backend (this repo)
-├── models.json (configuration source of truth)
+├── models.json (application/runtime/product configuration source of truth)
 └── workflows (data generation orchestration)
 
 jheem-portal (frontend)
@@ -101,10 +101,12 @@ Thin wrappers just specify `model_id` and expose workflow_dispatch inputs.
 ## Architectural Decisions
 
 ### Why models.json as source of truth?
-- Single place to update model config (DRY)
+- Single place to update backend/portal/runtime model config (DRY)
 - Frontend syncs at build time (type-safe)
 - Workflows read at runtime (no duplication)
 - Makes adding new models mechanical
+- Container build/provenance/test fields belong in `jheem-containers/models.yml` and should be validated
+  against this file where they overlap.
 
 ### Why reusable workflow template?
 - 54% code reduction (1,270 → 590 lines across 4 workflows)

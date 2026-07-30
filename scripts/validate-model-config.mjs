@@ -5,6 +5,12 @@ import { readFileSync } from "node:fs";
 const configPath = new URL("../.github/config/models.json", import.meta.url);
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const errors = [];
+const mirroredWorkflowDefaults = {
+  "ryan-white-msa": "../.github/workflows/generate-msa.yml",
+  "ryan-white-state-ajph": "../.github/workflows/generate-ajph.yml",
+  "ryan-white-state-croi": "../.github/workflows/generate-croi.yml",
+  "cdc-testing": "../.github/workflows/generate-cdc-testing.yml",
+};
 
 function check(condition, message) {
   if (!condition) errors.push(message);
@@ -14,11 +20,73 @@ function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
 }
 
+for (const [modelId, workflowPath] of Object.entries(mirroredWorkflowDefaults)) {
+  const container = config[modelId]?.container;
+  check(container && typeof container === "object", `${modelId}: container configuration is required`);
+  if (!container || typeof container !== "object") continue;
+
+  check(
+    /^\d+\.\d+\.\d+$/.test(container.version),
+    `${modelId}: container.version must be an exact semver tag`,
+  );
+  const workflow = readFileSync(new URL(workflowPath, import.meta.url), "utf8");
+  const expectedDefault = `default: '${container.image}:${container.version}'`;
+  check(
+    workflow.includes(expectedDefault),
+    `${modelId}: ${workflowPath} must mirror ${container.image}:${container.version}`,
+  );
+}
+
+function validateTimeline(modelId, label, timeline) {
+  check(timeline && typeof timeline === "object", `${modelId}/${label}: timeline is required`);
+  if (!timeline || typeof timeline !== "object") return;
+
+  for (const field of ["serviceInterruptionStartTime", "suppressionEffectStartTime"]) {
+    check(isFiniteNumber(timeline[field]), `${modelId}/${label}: ${field} must be numeric`);
+  }
+  if (isFiniteNumber(timeline.serviceInterruptionStartTime) &&
+      isFiniteNumber(timeline.suppressionEffectStartTime)) {
+    check(
+      timeline.suppressionEffectStartTime >= timeline.serviceInterruptionStartTime,
+      `${modelId}/${label}: suppression effect cannot precede service interruption`,
+    );
+  }
+
+  const hasResume = timeline.serviceResumeTime !== undefined;
+  const hasRecovery = timeline.suppressionRecoveryEndTime !== undefined;
+  check(
+    hasResume === hasRecovery,
+    `${modelId}/${label}: service resume and suppression recovery must be specified together`,
+  );
+  if (hasResume && hasRecovery) {
+    check(isFiniteNumber(timeline.serviceResumeTime), `${modelId}/${label}: serviceResumeTime must be numeric`);
+    check(
+      isFiniteNumber(timeline.suppressionRecoveryEndTime),
+      `${modelId}/${label}: suppressionRecoveryEndTime must be numeric`,
+    );
+    if (isFiniteNumber(timeline.serviceResumeTime) &&
+        isFiniteNumber(timeline.suppressionRecoveryEndTime)) {
+      check(
+        timeline.serviceResumeTime > timeline.serviceInterruptionStartTime,
+        `${modelId}/${label}: service resume must follow interruption`,
+      );
+      check(
+        timeline.suppressionRecoveryEndTime >= timeline.serviceResumeTime,
+        `${modelId}/${label}: suppression recovery cannot finish before services resume`,
+      );
+    }
+  }
+}
+
 for (const [modelId, model] of Object.entries(config)) {
   if (modelId.startsWith("_") || !model || typeof model !== "object") continue;
 
   const custom = model.customSimulation;
   if (!custom || custom.simulationScript !== "simple_ryan_white.R") continue;
+
+  for (const scenario of model.scenarios ?? []) {
+    validateTimeline(modelId, scenario.id ?? "unnamed-scenario", scenario.timeline);
+  }
 
   check(
     custom.interventionType === "permanent_cessation",
@@ -68,6 +136,7 @@ for (const [modelId, model] of Object.entries(config)) {
   }
 }
 
+// Scientific regression contract traced to the CROI 2026 model-owner analysis.
 const croiTiming = config["ryan-white-state-croi"]?.customSimulation?.timing;
 check(croiTiming?.interventionStartTime === 2026.5, "CROI: interruption must begin in July 2026");
 check(croiTiming?.lossLagYears === 0.25, "CROI: suppression effect lag must be three months");

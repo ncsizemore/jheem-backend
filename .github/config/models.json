@@ -1,8 +1,8 @@
 {
   "$schema": "./models.schema.json",
   "_meta": {
-    "version": "1.1.1",
-    "description": "Single source of truth for JHEEM model configurations. Used by GitHub Actions workflows and jheem-portal.",
+    "version": "1.2.0",
+    "description": "Source of truth for JHEEM application/runtime/product model configuration. Used by GitHub Actions workflows and jheem-portal. Container build/test/provenance metadata belongs in jheem-containers.",
     "lastUpdated": "2026-07-30",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
@@ -36,17 +36,33 @@
       {
         "id": "cessation",
         "label": "Cessation",
-        "description": "Permanent end to Ryan White funding"
+        "description": "Permanent end to Ryan White funding",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75
+        }
       },
       {
         "id": "brief_interruption",
         "label": "Brief Interruption",
-        "description": "18-month funding gap, then services resume"
+        "description": "18-month funding gap, then services resume",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75,
+          "serviceResumeTime": 2027,
+          "suppressionRecoveryEndTime": 2028
+        }
       },
       {
         "id": "prolonged_interruption",
         "label": "Prolonged Interruption",
-        "description": "42-month funding gap, then services resume"
+        "description": "42-month funding gap, then services resume",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75,
+          "serviceResumeTime": 2029,
+          "suppressionRecoveryEndTime": 2030
+        }
       }
     ],
 
@@ -84,7 +100,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-msa",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "repository": "ncsizemore/jheem-ryan-white-msa-container"
     },
 
@@ -166,18 +182,34 @@
         "id": "cessation",
         "label": "Cessation",
         "description": "Permanent end to Ryan White funding",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75
+        },
         "filePatterns": ["rw.end"]
       },
       {
         "id": "brief_interruption",
         "label": "Brief Interruption",
         "description": "18-month funding gap, then services resume",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75,
+          "serviceResumeTime": 2027,
+          "suppressionRecoveryEndTime": 2028
+        },
         "filePatterns": ["rw.b.intr"]
       },
       {
         "id": "prolonged_interruption",
         "label": "Prolonged Interruption",
         "description": "42-month funding gap, then services resume",
+        "timeline": {
+          "serviceInterruptionStartTime": 2025.5,
+          "suppressionEffectStartTime": 2025.75,
+          "serviceResumeTime": 2029,
+          "suppressionRecoveryEndTime": 2030
+        },
         "filePatterns": ["rw.p.intr"]
       }
     ],
@@ -218,7 +250,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-ajph",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "repository": "ncsizemore/jheem-ryan-white-ajph-container"
     },
 
@@ -305,25 +337,45 @@
       {
         "id": "cessation",
         "label": "Cessation",
-        "description": "Permanent end to Ryan White funding starting 2026",
+        "description": "Permanent end to Ryan White funding starting in July 2026",
+        "timeline": {
+          "serviceInterruptionStartTime": 2026.5,
+          "suppressionEffectStartTime": 2026.75
+        },
         "filePatterns": ["rw.end.26"]
       },
       {
         "id": "interruption",
         "label": "Interruption",
-        "description": "2.5-year funding gap (2026-2028), then services resume",
+        "description": "2.5-year funding gap; services resume in January 2029",
+        "timeline": {
+          "serviceInterruptionStartTime": 2026.5,
+          "suppressionEffectStartTime": 2026.75,
+          "serviceResumeTime": 2029,
+          "suppressionRecoveryEndTime": 2030
+        },
         "filePatterns": ["rw.p.intr.26"]
       },
       {
         "id": "cessation_conservative",
         "label": "Cessation (Conservative)",
         "description": "Permanent cessation with conservative impact assumptions",
+        "timeline": {
+          "serviceInterruptionStartTime": 2026.5,
+          "suppressionEffectStartTime": 2026.75
+        },
         "filePatterns": ["rw.end.cons.26"]
       },
       {
         "id": "interruption_conservative",
         "label": "Interruption (Conservative)",
-        "description": "2.5-year gap with conservative impact assumptions",
+        "description": "2.5-year gap with conservative impact assumptions; services resume in January 2029",
+        "timeline": {
+          "serviceInterruptionStartTime": 2026.5,
+          "suppressionEffectStartTime": 2026.75,
+          "serviceResumeTime": 2029,
+          "suppressionRecoveryEndTime": 2030
+        },
         "filePatterns": ["rw.p.intr.cons.26"]
       }
     ],
@@ -364,7 +416,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-croi",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "repository": "ncsizemore/jheem-ryan-white-croi-container"
     },
 
@@ -417,6 +469,7 @@
         "reportingStartYear": 2026,
         "reportingEndYear": 2031
       },
+      "cacheKeyPrefix": "t2026",
       "simulationScript": "simple_ryan_white.R",
       "parameters": [
         { "id": "adap_loss", "envVar": "ADAP_LOSS", "label": "ADAP suppression loss", "keyPrefix": "a", "default": 50, "unit": "%" },
@@ -506,7 +559,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-cdc-testing",
-      "version": "2.1.2",
+      "version": "2.1.3",
       "repository": "ncsizemore/jheem-cdc-testing-container"
     },
 
