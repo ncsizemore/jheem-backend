@@ -6,12 +6,14 @@ on:
       - .github/config/models.json
       - scripts/validate-model-config.mjs
       - .github/workflows/validate-model-config.yml
+      - '.github/workflows/generate-*.yml'
   push:
     branches: [master]
     paths:
       - .github/config/models.json
       - scripts/validate-model-config.mjs
       - .github/workflows/validate-model-config.yml
+      - '.github/workflows/generate-*.yml'
   workflow_dispatch:
 
 permissions:

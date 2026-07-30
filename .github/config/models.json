@@ -3,7 +3,7 @@
   "_meta": {
     "version": "1.2.0",
     "description": "Source of truth for JHEEM application/runtime/product model configuration. Used by GitHub Actions workflows and jheem-portal. Container build/test/provenance metadata belongs in jheem-containers.",
-    "lastUpdated": "2026-07-29",
+    "lastUpdated": "2026-07-30",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
 
@@ -100,7 +100,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-msa",
-      "version": "1.0.1",
+      "version": "1.1.0",
       "repository": "ncsizemore/jheem-ryan-white-msa-container"
     },
 
@@ -250,7 +250,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-ajph",
-      "version": "1.0.0",
+      "version": "1.1.0",
       "repository": "ncsizemore/jheem-ryan-white-ajph-container"
     },
 
@@ -416,7 +416,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-ryan-white-croi",
-      "version": "2.2.0",
+      "version": "2.3.0",
       "repository": "ncsizemore/jheem-ryan-white-croi-container"
     },
 
@@ -559,7 +559,7 @@
 
     "container": {
       "image": "ghcr.io/ncsizemore/jheem-cdc-testing",
-      "version": "2.1.2",
+      "version": "2.1.3",
       "repository": "ncsizemore/jheem-cdc-testing-container"
     },
 

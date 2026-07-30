@@ -5,6 +5,12 @@ import { readFileSync } from "node:fs";
 const configPath = new URL("../.github/config/models.json", import.meta.url);
 const config = JSON.parse(readFileSync(configPath, "utf8"));
 const errors = [];
+const mirroredWorkflowDefaults = {
+  "ryan-white-msa": "../.github/workflows/generate-msa.yml",
+  "ryan-white-state-ajph": "../.github/workflows/generate-ajph.yml",
+  "ryan-white-state-croi": "../.github/workflows/generate-croi.yml",
+  "cdc-testing": "../.github/workflows/generate-cdc-testing.yml",
+};
 
 function check(condition, message) {
   if (!condition) errors.push(message);
@@ -12,6 +18,23 @@ function check(condition, message) {
 
 function isFiniteNumber(value) {
   return typeof value === "number" && Number.isFinite(value);
+}
+
+for (const [modelId, workflowPath] of Object.entries(mirroredWorkflowDefaults)) {
+  const container = config[modelId]?.container;
+  check(container && typeof container === "object", `${modelId}: container configuration is required`);
+  if (!container || typeof container !== "object") continue;
+
+  check(
+    /^\d+\.\d+\.\d+$/.test(container.version),
+    `${modelId}: container.version must be an exact semver tag`,
+  );
+  const workflow = readFileSync(new URL(workflowPath, import.meta.url), "utf8");
+  const expectedDefault = `default: '${container.image}:${container.version}'`;
+  check(
+    workflow.includes(expectedDefault),
+    `${modelId}: ${workflowPath} must mirror ${container.image}:${container.version}`,
+  );
 }
 
 function validateTimeline(modelId, label, timeline) {
