@@ -2,9 +2,13 @@
 
 Central orchestration for JHEEM data generation workflows. This repository hosts:
 
-- **`models.json`** - Single source of truth for all model configurations
+- **`models.json`** - Source of truth for application/runtime/product model configuration
 - **Reusable workflow template** - Handles data extraction, aggregation, and deployment
 - **Thin wrapper workflows** - Model-specific entry points
+
+Container build/test/provenance metadata is owned by the container monorepo. See
+`jheem-containers/docs/CONFIG-OWNERSHIP-AND-CONTRACTS.md` for the boundary between backend
+`models.json` and container `models.yml`.
 
 ## Architecture
 

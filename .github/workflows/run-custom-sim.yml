@@ -87,6 +87,7 @@ jobs:
           SCENARIO_KEY=""
           SCENARIO_LABEL=""
           ENV_FLAGS=""
+          CACHE_KEY_PREFIX=$(echo "$HAS_CUSTOM" | jq -r '.cacheKeyPrefix // empty')
           PARAM_COUNT=$(echo "$PARAM_DEFS" | jq 'length')
 
           for i in $(seq 0 $((PARAM_COUNT - 1))); do
@@ -121,6 +122,10 @@ jobs:
             ENV_FLAGS="${ENV_FLAGS} -e ${ENV_VAR}=${VALUE}"
           done
 
+          if [ -n "$CACHE_KEY_PREFIX" ]; then
+            SCENARIO_KEY="${CACHE_KEY_PREFIX}-${SCENARIO_KEY}"
+          fi
+
           echo "scenario_key=$SCENARIO_KEY" >> $GITHUB_OUTPUT
           echo "scenario_label=$SCENARIO_LABEL" >> $GITHUB_OUTPUT
           echo "env_flags=$ENV_FLAGS" >> $GITHUB_OUTPUT
@@ -128,6 +133,72 @@ jobs:
           # --- Read other config ---
           SIMULATION_SCRIPT=$(jq -r ".\"$MODEL_ID\".customSimulation.simulationScript" $CONFIG_FILE)
           echo "simulation_script=$SIMULATION_SCRIPT" >> $GITHUB_OUTPUT
+
+          INTERVENTION_TYPE=$(jq -r ".\"$MODEL_ID\".customSimulation.interventionType // empty" $CONFIG_FILE)
+          TIMING=$(jq -c ".\"$MODEL_ID\".customSimulation.timing // empty" $CONFIG_FILE)
+          if [ "$SIMULATION_SCRIPT" = "simple_ryan_white.R" ]; then
+            if [ "$INTERVENTION_TYPE" != "permanent_cessation" ]; then
+              echo "❌ Ryan White custom simulations require interventionType=permanent_cessation"
+              exit 1
+            fi
+            if ! echo "$TIMING" | jq -e '
+              (.interventionStartTime | type == "number") and
+              (.lossLagYears | type == "number") and
+              (.simulationStartYear | type == "number") and
+              (.simulationEndYear | type == "number") and
+              (.reportingStartYear | type == "number") and
+              (.reportingEndYear | type == "number") and
+              (.lossLagYears >= 0) and
+              (.simulationStartYear < .simulationEndYear) and
+              (.interventionStartTime >= .simulationStartYear) and
+              (.interventionStartTime <= .simulationEndYear) and
+              (.reportingStartYear >= .simulationStartYear) and
+              (.reportingEndYear <= .simulationEndYear) and
+              (.reportingStartYear <= .reportingEndYear)
+            ' >/dev/null; then
+              echo "❌ Missing or invalid Ryan White custom-simulation timing configuration"
+              exit 1
+            fi
+          fi
+
+          INTERVENTION_START_TIME=$(echo "$TIMING" | jq -r '.interventionStartTime // empty')
+          LOSS_LAG_YEARS=$(echo "$TIMING" | jq -r '.lossLagYears // empty')
+          SIMULATION_START_YEAR=$(echo "$TIMING" | jq -r '.simulationStartYear // empty')
+          SIMULATION_END_YEAR=$(echo "$TIMING" | jq -r '.simulationEndYear // empty')
+          REPORTING_START_YEAR=$(echo "$TIMING" | jq -r '.reportingStartYear // empty')
+          REPORTING_END_YEAR=$(echo "$TIMING" | jq -r '.reportingEndYear // empty')
+
+          echo "intervention_type=$INTERVENTION_TYPE" >> $GITHUB_OUTPUT
+          echo "intervention_start_time=$INTERVENTION_START_TIME" >> $GITHUB_OUTPUT
+          echo "loss_lag_years=$LOSS_LAG_YEARS" >> $GITHUB_OUTPUT
+          echo "simulation_start_year=$SIMULATION_START_YEAR" >> $GITHUB_OUTPUT
+          echo "simulation_end_year=$SIMULATION_END_YEAR" >> $GITHUB_OUTPUT
+          echo "reporting_start_year=$REPORTING_START_YEAR" >> $GITHUB_OUTPUT
+          echo "reporting_end_year=$REPORTING_END_YEAR" >> $GITHUB_OUTPUT
+          echo "cache_key_prefix=$CACHE_KEY_PREFIX" >> $GITHUB_OUTPUT
+
+          CUSTOM_SIMULATION_METADATA=""
+          if [ -n "$TIMING" ]; then
+            CUSTOM_SIMULATION_METADATA=$(jq -cn \
+              --arg model_id "$MODEL_ID" \
+              --arg intervention_type "$INTERVENTION_TYPE" \
+              --arg cache_key_prefix "$CACHE_KEY_PREFIX" \
+              --argjson intervention_start_time "$INTERVENTION_START_TIME" \
+              --argjson loss_lag_years "$LOSS_LAG_YEARS" \
+              --argjson simulation_start_year "$SIMULATION_START_YEAR" \
+              --argjson simulation_end_year "$SIMULATION_END_YEAR" \
+              --argjson reporting_start_year "$REPORTING_START_YEAR" \
+              --argjson reporting_end_year "$REPORTING_END_YEAR" \
+              '{model_id: $model_id, intervention_type: $intervention_type,
+                intervention_start_time: $intervention_start_time,
+                loss_lag_years: $loss_lag_years,
+                simulation_start_year: $simulation_start_year,
+                simulation_end_year: $simulation_end_year,
+                reporting_start_year: $reporting_start_year,
+                reporting_end_year: $reporting_end_year}
+               + if $cache_key_prefix == "" then {} else {cache_key_prefix: $cache_key_prefix} end')
+          fi
+          echo "custom_simulation_metadata=$CUSTOM_SIMULATION_METADATA" >> $GITHUB_OUTPUT
 
           OUTCOMES=$(jq -r ".\"$MODEL_ID\".outcomes | join(\",\")" $CONFIG_FILE)
           echo "outcomes=$OUTCOMES" >> $GITHUB_OUTPUT
@@ -175,6 +246,10 @@ jobs:
           echo "  Location:      $LOCATION"
           echo "  Scenario key:  $SCENARIO_KEY"
           echo "  Scenario label: $SCENARIO_LABEL"
+          echo "  Intervention:  $INTERVENTION_TYPE"
+          if [ -n "$INTERVENTION_START_TIME" ]; then
+            echo "  Timing:        intervention=$INTERVENTION_START_TIME, lag=$LOSS_LAG_YEARS, simulation=$SIMULATION_START_YEAR-$SIMULATION_END_YEAR, reporting=$REPORTING_START_YEAR-$REPORTING_END_YEAR"
+          fi
           echo "  Container:     $CONTAINER_IMAGE"
           echo "  Release:       $RELEASE"
           echo "  Outcomes:      $OUTCOMES"
@@ -270,6 +345,13 @@ jobs:
           OUTCOMES: ${{ steps.config.outputs.outcomes }}
           STATISTICS: ${{ steps.config.outputs.statistics }}
           FACETS: ${{ steps.config.outputs.facets }}
+          INTERVENTION_TYPE: ${{ steps.config.outputs.intervention_type }}
+          INTERVENTION_START_TIME: ${{ steps.config.outputs.intervention_start_time }}
+          LOSS_LAG_YEARS: ${{ steps.config.outputs.loss_lag_years }}
+          SIMULATION_START_YEAR: ${{ steps.config.outputs.simulation_start_year }}
+          SIMULATION_END_YEAR: ${{ steps.config.outputs.simulation_end_year }}
+          REPORTING_START_YEAR: ${{ steps.config.outputs.reporting_start_year }}
+          REPORTING_END_YEAR: ${{ steps.config.outputs.reporting_end_year }}
           UPSTASH_REDIS_REST_URL: ${{ secrets.UPSTASH_REDIS_REST_URL }}
           UPSTASH_REDIS_REST_TOKEN: ${{ secrets.UPSTASH_REDIS_REST_TOKEN }}
         run: |
@@ -304,6 +386,13 @@ jobs:
             -e "SCENARIO_KEY=$SCENARIO_KEY" \
             -e "SCENARIO_LABEL=$SCENARIO_LABEL" \
             -e "OUTPUT_DIR=/output" \
+            -e "INTERVENTION_TYPE=$INTERVENTION_TYPE" \
+            -e "INTERVENTION_START_TIME=$INTERVENTION_START_TIME" \
+            -e "LOSS_LAG_YEARS=$LOSS_LAG_YEARS" \
+            -e "SIMULATION_START_YEAR=$SIMULATION_START_YEAR" \
+            -e "SIMULATION_END_YEAR=$SIMULATION_END_YEAR" \
+            -e "REPORTING_START_YEAR=$REPORTING_START_YEAR" \
+            -e "REPORTING_END_YEAR=$REPORTING_END_YEAR" \
             $ENV_FLAGS \
             "$CONTAINER_IMAGE" \
             custom 2>&1 | "$REPORTER" sim "$PROGRESS_KEY"
@@ -354,6 +443,7 @@ jobs:
         working-directory: portal
         env:
           LOCATION: ${{ inputs.location }}
+          CUSTOM_SIMULATION_METADATA: ${{ steps.config.outputs.custom_simulation_metadata }}
         run: |
           echo "📊 Aggregating data for $LOCATION..."
 

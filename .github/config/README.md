@@ -39,7 +39,17 @@ Each model entry contains:
     },
 
     // Model configuration
-    "scenarios": [{ "id", "label", "description" }],
+    "scenarios": [{
+      "id": "interruption",
+      "label": "Interruption",
+      "description": "Human-readable summary",
+      "timeline": {
+        "serviceInterruptionStartTime": 2026.5,
+        "suppressionEffectStartTime": 2026.75,
+        "serviceResumeTime": 2029,
+        "suppressionRecoveryEndTime": 2030
+      }
+    }],
     "outcomes": ["list of outcome IDs"],
     "facets": ["list of facet combinations"],
     "statistics": { "base": [], "all": [] },
@@ -55,7 +65,23 @@ Each model entry contains:
     "interventionStartYear": 2025,
 
     // Workflow settings
-    "workflow": { "maxParallel", "includeIndividualSimulation" }
+    "workflow": { "maxParallel", "includeIndividualSimulation" },
+
+    // On-demand simulation contract (when supported)
+    "customSimulation": {
+      "simulationScript": "simple_ryan_white.R",
+      "interventionType": "permanent_cessation",
+      "timing": {
+        "interventionStartTime": 2026.5,
+        "lossLagYears": 0.25,
+        "simulationStartYear": 2026,
+        "simulationEndYear": 2036,
+        "reportingStartYear": 2026,
+        "reportingEndYear": 2031
+      },
+      "cacheKeyPrefix": "optional-version-prefix",
+      "parameters": []
+    }
   }
 }
 ```
@@ -115,6 +141,7 @@ The portal can:
 
 The `_meta.version` field tracks schema changes:
 - `1.0.0` - Initial version
+- `1.2.0` - Model-specific custom-simulation timing and cache-key versioning
 
 When making breaking changes to the schema, increment the major version.
 
