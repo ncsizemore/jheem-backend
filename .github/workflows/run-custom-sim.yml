@@ -11,14 +11,19 @@
 # so identical parameters always map to the same S3 path for caching.
 #
 # S3 layout:
-#   portal/{s3Path}/custom/{location}/{scenario-key}.json       (data)
-#   portal/{s3Path}/custom/{location}/{scenario-key}-status.json (status)
+#   portal/{s3Path}/custom/{location}/{scenario-key}.json
 #
 # Triggered manually (workflow_dispatch) or via API for portal-initiated runs.
 # =============================================================================
 
 name: Run Custom Simulation
-run-name: "custom-sim: ${{ inputs.model_id }} ${{ inputs.location }} ${{ inputs.parameters }}"
+run-name: "custom-sim: ${{ inputs.request_id != '' && inputs.request_id || format('legacy:{0}:{1}:{2}', inputs.model_id, inputs.location, inputs.parameters) }}"
+
+# The portal supplies the canonical request ID. Legacy callers fall back to their
+# exact raw inputs so they also gain duplicate serialization during migration.
+concurrency:
+  group: "custom-sim-${{ inputs.request_id != '' && inputs.request_id || format('legacy-{0}-{1}-{2}', inputs.model_id, inputs.location, inputs.parameters) }}"
+  cancel-in-progress: false
 
 on:
   workflow_dispatch:
@@ -35,6 +40,11 @@ on:
       parameters:
         description: 'JSON object of parameter values (e.g., {"adap_loss": 50, "oahs_loss": 30, "other_loss": 40})'
         required: true
+        type: string
+      request_id:
+        description: 'Canonical portal request ID (v1:model:location:scenario); optional for legacy callers'
+        required: false
+        default: ''
         type: string
       release_override:
         description: 'Override data release tag (empty = use models.json)'
@@ -65,6 +75,7 @@ jobs:
           MODEL_ID: ${{ inputs.model_id }}
           LOCATION: ${{ inputs.location }}
           PARAMS: ${{ inputs.parameters }}
+          REQUEST_ID: ${{ inputs.request_id }}
           CONTAINER_IMAGE_OVERRIDE: ${{ inputs.container_image_override }}
           RELEASE_OVERRIDE: ${{ inputs.release_override }}
         run: |
@@ -126,9 +137,21 @@ jobs:
             SCENARIO_KEY="${CACHE_KEY_PREFIX}-${SCENARIO_KEY}"
           fi
 
+          # The backend derives the authoritative identity. A caller-provided
+          # request ID is only a claim and must match exactly before compute.
+          EXPECTED_REQUEST_ID="v1:${MODEL_ID}:${LOCATION}:${SCENARIO_KEY}"
+          if [ -n "$REQUEST_ID" ] && [ "$REQUEST_ID" != "$EXPECTED_REQUEST_ID" ]; then
+            echo "❌ Request ID mismatch"
+            echo "   supplied: $REQUEST_ID"
+            echo "   expected: $EXPECTED_REQUEST_ID"
+            exit 1
+          fi
+          EFFECTIVE_REQUEST_ID="${REQUEST_ID:-$EXPECTED_REQUEST_ID}"
+
           echo "scenario_key=$SCENARIO_KEY" >> $GITHUB_OUTPUT
           echo "scenario_label=$SCENARIO_LABEL" >> $GITHUB_OUTPUT
           echo "env_flags=$ENV_FLAGS" >> $GITHUB_OUTPUT
+          echo "request_id=$EFFECTIVE_REQUEST_ID" >> $GITHUB_OUTPUT
 
           # --- Read other config ---
           SIMULATION_SCRIPT=$(jq -r ".\"$MODEL_ID\".customSimulation.simulationScript" $CONFIG_FILE)
@@ -177,9 +200,12 @@ jobs:
           echo "reporting_end_year=$REPORTING_END_YEAR" >> $GITHUB_OUTPUT
           echo "cache_key_prefix=$CACHE_KEY_PREFIX" >> $GITHUB_OUTPUT
 
-          CUSTOM_SIMULATION_METADATA=""
+          CUSTOM_SIMULATION_METADATA=$(jq -cn \
+            --arg model_id "$MODEL_ID" \
+            --arg request_id "$EFFECTIVE_REQUEST_ID" \
+            '{model_id: $model_id, request_id: $request_id, run_contract_version: "v1"}')
           if [ -n "$TIMING" ]; then
-            CUSTOM_SIMULATION_METADATA=$(jq -cn \
+            TIMING_METADATA=$(jq -cn \
               --arg model_id "$MODEL_ID" \
               --arg intervention_type "$INTERVENTION_TYPE" \
               --arg cache_key_prefix "$CACHE_KEY_PREFIX" \
@@ -197,6 +223,10 @@ jobs:
                 reporting_start_year: $reporting_start_year,
                 reporting_end_year: $reporting_end_year}
                + if $cache_key_prefix == "" then {} else {cache_key_prefix: $cache_key_prefix} end')
+            CUSTOM_SIMULATION_METADATA=$(jq -cn \
+              --argjson identity "$CUSTOM_SIMULATION_METADATA" \
+              --argjson timing "$TIMING_METADATA" \
+              '$identity + $timing')
           fi
           echo "custom_simulation_metadata=$CUSTOM_SIMULATION_METADATA" >> $GITHUB_OUTPUT
 
@@ -245,6 +275,7 @@ jobs:
           echo "=========================================="
           echo "  Location:      $LOCATION"
           echo "  Scenario key:  $SCENARIO_KEY"
+          echo "  Request ID:    $EFFECTIVE_REQUEST_ID"
           echo "  Scenario label: $SCENARIO_LABEL"
           echo "  Intervention:  $INTERVENTION_TYPE"
           if [ -n "$INTERVENTION_START_TIME" ]; then
@@ -265,7 +296,36 @@ jobs:
           aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
           aws-region: us-east-1
 
+      - name: Check for an already-published result
+        if: inputs.dry_run != true
+        id: cache
+        env:
+          LOCATION: ${{ inputs.location }}
+          S3_BUCKET: ${{ steps.config.outputs.s3_bucket }}
+          S3_PATH: ${{ steps.config.outputs.s3_path }}
+          SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
+        run: |
+          OBJECT_KEY="${S3_PATH}/custom/${LOCATION}/${SCENARIO_KEY}.json"
+          HEAD_ERROR=$(mktemp)
+          set +e
+          aws s3api head-object --bucket "$S3_BUCKET" --key "$OBJECT_KEY" >/dev/null 2>"$HEAD_ERROR"
+          HEAD_STATUS=$?
+          set -e
+
+          if [ "$HEAD_STATUS" -eq 0 ]; then
+            echo "hit=true" >> "$GITHUB_OUTPUT"
+            echo "✅ Result already exists at s3://${S3_BUCKET}/${OBJECT_KEY}; skipping duplicate compute"
+          elif grep -Eq '\(404\)|Not Found' "$HEAD_ERROR"; then
+            echo "hit=false" >> "$GITHUB_OUTPUT"
+            echo "Cache miss; continuing with simulation"
+          else
+            echo "❌ Unable to verify result cache; refusing to risk duplicate compute"
+            cat "$HEAD_ERROR"
+            exit "$HEAD_STATUS"
+          fi
+
       - name: Download base simset from GitHub Release
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
           LOCATION: ${{ inputs.location }}
@@ -304,6 +364,7 @@ jobs:
           ls -lh ./simulations/
 
       - name: Login to GitHub Container Registry
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         uses: docker/login-action@v3
         with:
           registry: ghcr.io
@@ -311,17 +372,20 @@ jobs:
           password: ${{ secrets.GITHUB_TOKEN }}
 
       - name: Checkout jheem-portal (for aggregation scripts)
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         uses: actions/checkout@v4
         with:
           repository: ncsizemore/jheem-portal
           path: portal
 
       - name: Setup Node.js
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         uses: actions/setup-node@v4
         with:
           node-version: '20'
 
       - name: Install portal dependencies
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         working-directory: portal
         # GITHUB_TOKEN is needed by the portal's postinstall (sync-config.ts)
         # to fetch models.json from this (now-private) repo via the
@@ -334,6 +398,7 @@ jobs:
         run: npm ci
 
       - name: Run custom simulation
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         env:
           LOCATION: ${{ inputs.location }}
           MODEL_ID: ${{ inputs.model_id }}
@@ -440,6 +505,7 @@ jobs:
           echo "✅ Custom simulation and extraction complete"
 
       - name: Aggregate location data
+        if: inputs.dry_run == true || steps.cache.outputs.hit != 'true'
         working-directory: portal
         env:
           LOCATION: ${{ inputs.location }}
@@ -489,7 +555,7 @@ jobs:
           echo "✅ Created $LOCATION.json ($size)"
 
       - name: Upload to S3
-        if: inputs.dry_run != true
+        if: inputs.dry_run != true && steps.cache.outputs.hit != 'true'
         working-directory: portal
         env:
           LOCATION: ${{ inputs.location }}
@@ -511,7 +577,7 @@ jobs:
           echo "✅ Uploaded to S3"
 
       - name: Invalidate CloudFront cache
-        if: inputs.dry_run != true
+        if: inputs.dry_run != true && steps.cache.outputs.hit != 'true'
         env:
           LOCATION: ${{ inputs.location }}
           S3_PATH: ${{ steps.config.outputs.s3_path }}
@@ -572,6 +638,7 @@ jobs:
           LOCATION: ${{ inputs.location }}
           DRY_RUN: ${{ inputs.dry_run }}
           SCENARIO_KEY: ${{ steps.config.outputs.scenario_key }}
+          REQUEST_ID: ${{ steps.config.outputs.request_id }}
           SCENARIO_LABEL: ${{ steps.config.outputs.scenario_label }}
           S3_PATH: ${{ steps.config.outputs.s3_path }}
         run: |
@@ -583,6 +650,7 @@ jobs:
           echo "Model: $MODEL_ID"
           echo "Location: $LOCATION"
           echo "Scenario key: $SCENARIO_KEY"
+          echo "Request ID: $REQUEST_ID"
           echo "Scenario label: $SCENARIO_LABEL"
           echo "Dry run: $DRY_RUN"
           if [ "$DRY_RUN" != "true" ]; then

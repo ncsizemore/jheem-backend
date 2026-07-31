@@ -45,6 +45,14 @@ const customSimulationWorkflow = readFileSync(
 for (const requiredFragment of [
   ".metadata.custom_simulation = $custom_simulation",
   ".metadata.custom_simulation == $custom_simulation",
+  "request_id:",
+  "EXPECTED_REQUEST_ID=\"v1:${MODEL_ID}:${LOCATION}:${SCENARIO_KEY}\"",
+  "[ \"$REQUEST_ID\" != \"$EXPECTED_REQUEST_ID\" ]",
+  "run_contract_version: \"v1\"",
+  "cancel-in-progress: false",
+  "Check for an already-published result",
+  "skipping duplicate compute",
+  "refusing to risk duplicate compute",
 ]) {
   check(
     customSimulationWorkflow.includes(requiredFragment),
