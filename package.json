@@ -3,7 +3,7 @@
   "version": "1.0.0",
   "main": "index.js",
   "scripts": {
-    "test": "node scripts/validate-model-config.mjs"
+    "test": "node scripts/validate.mjs"
   },
   "keywords": [],
   "author": "",
