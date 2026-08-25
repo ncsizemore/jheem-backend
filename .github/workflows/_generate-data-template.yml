@@ -65,6 +65,7 @@ jobs:
       statistics: ${{ steps.config.outputs.statistics }}
       container_image: ${{ steps.config.outputs.container_image }}
       data_source_type: ${{ steps.config.outputs.data_source_type }}
+      data_source_repository: ${{ steps.config.outputs.data_source_repo }}
       data_source_release: ${{ steps.config.outputs.data_source_release }}
       data_source_pattern: ${{ steps.config.outputs.data_source_pattern }}
       s3_path: ${{ steps.config.outputs.s3_path }}
@@ -264,8 +265,10 @@ jobs:
         if: needs.prepare.outputs.data_source_type == 'GitHub-Release'
         env:
           GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+          RELEASE: ${{ needs.prepare.outputs.data_source_release }}
+          REPOSITORY: ${{ needs.prepare.outputs.data_source_repository }}
         run: |
-          echo "📥 Downloading simulation data for ${{ matrix.location }} from release ${{ needs.prepare.outputs.data_source_release }}"
+          echo "📥 Downloading simulation data for ${{ matrix.location }} from $REPOSITORY@$RELEASE"
 
           mkdir -p simulations/${{ inputs.model_id }}/base
           mkdir -p simulations/${{ inputs.model_id }}/prerun/${{ matrix.location }}
@@ -284,8 +287,8 @@ jobs:
           echo "Using pattern: $PATTERN"
 
           # Download files
-          gh release download ${{ needs.prepare.outputs.data_source_release }} \
-            --repo ncsizemore/jheem-simulations \
+          gh release download "$RELEASE" \
+            --repo "$REPOSITORY" \
             --pattern "$PATTERN" \
             --dir ./tmp-download || true
 

@@ -104,6 +104,13 @@ function validateTimeline(modelId, label, timeline) {
 for (const [modelId, model] of Object.entries(config)) {
   if (modelId.startsWith("_") || !model || typeof model !== "object") continue;
 
+  if (model.dataSource?.type === "GitHub-Release") {
+    check(
+      model.dataSource.repository === "CIPHER-Epi/jheem-simulations",
+      `${modelId}: GitHub release data must use the organization-owned simulation archive`,
+    );
+  }
+
   const custom = model.customSimulation;
   if (!custom || custom.simulationScript !== "simple_ryan_white.R") continue;
 

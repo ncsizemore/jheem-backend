@@ -106,7 +106,7 @@
 
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "ncsizemore/jheem-simulations",
+      "repository": "CIPHER-Epi/jheem-simulations",
       "release": "ryan-white-msa-v1.0.0"
     },
 
@@ -256,7 +256,7 @@
 
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "ncsizemore/jheem-simulations",
+      "repository": "CIPHER-Epi/jheem-simulations",
       "release": "ryan-white-ajph-v1.0.0",
       "filePattern": "rw_final.ehe.state-1000_{STATE}_*.Rdata"
     },
@@ -422,7 +422,7 @@
 
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "ncsizemore/jheem-simulations",
+      "repository": "CIPHER-Epi/jheem-simulations",
       "release": "ryan-white-state-v2.0.0",
       "filePattern": "rw_final.ehe.state-1000_{STATE}_*.Rdata"
     },
@@ -565,7 +565,7 @@
 
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "ncsizemore/jheem-simulations",
+      "repository": "CIPHER-Epi/jheem-simulations",
       "release": "cdc-testing-v1.0.0",
       "filePattern": "cdct_final.ehe.state-1000_{STATE}_*.Rdata"
     },

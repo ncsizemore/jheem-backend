@@ -12,7 +12,7 @@ set -e
 
 RELEASE_TAG="ryan-white-ajph-v1.0.0"
 RELEASE_TITLE="Ryan White AJPH State-Level Simulations v1.0.0"
-REPO="ncsizemore/jheem-simulations"
+REPO="CIPHER-Epi/jheem-simulations"
 SIM_DIR="/mnt/jheem_nas_share/simulations/rw/final.ehe.state-1000"
 
 # AJPH 11 states

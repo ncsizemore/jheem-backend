@@ -20,7 +20,7 @@ set -e
 # Configuration
 RELEASE_TAG="ryan-white-msa-v1.0.0"
 RELEASE_TITLE="Ryan White MSA Simulations v1.0.0"
-REPO="ncsizemore/jheem-simulations"
+REPO="CIPHER-Epi/jheem-simulations"
 BASE_DIR="$HOME/Downloads/base"
 PRERUN_DIR="$HOME/Downloads/prerun"
 STAGING_DIR="$HOME/Downloads/msa-release-staging"

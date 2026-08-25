@@ -69,7 +69,7 @@ Edit `.github/config/models.json`:
     },
     "dataSource": {
       "type": "GitHub-Release",
-      "repository": "ncsizemore/jheem-simulations",
+      "repository": "CIPHER-Epi/jheem-simulations",
       "release": "my-model-v1.0.0",
       "filePattern": "my_model_{STATE}_*.Rdata"
     },
@@ -126,7 +126,7 @@ jobs:
 
 ### 3. Upload simulation data
 
-Create a GitHub Release in `ncsizemore/jheem-simulations`:
+Create a GitHub Release in `CIPHER-Epi/jheem-simulations`:
 - Tag: `my-model-v1.0.0`
 - Upload `.Rdata` files matching your `filePattern`
 
@@ -159,7 +159,7 @@ docs/                            # Architecture documentation
 | Repository | Purpose |
 |------------|---------|
 | [jheem-portal](https://github.com/ncsizemore/jheem-portal) | Next.js frontend |
-| [jheem-simulations](https://github.com/ncsizemore/jheem-simulations) | Simulation data (GitHub Releases) |
+| [jheem-simulations](https://github.com/CIPHER-Epi/jheem-simulations) | Simulation data (GitHub Releases) |
 | jheem-*-container | R containers for data extraction |
 
 ## Infrastructure
