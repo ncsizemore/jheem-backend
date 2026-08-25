@@ -140,7 +140,7 @@ jobs:
 
           # Download all files for this state from the release
           gh release download ${{ github.event.inputs.simulation_release }} \
-            --repo ncsizemore/jheem-simulations \
+            --repo CIPHER-Epi/jheem-simulations \
             --pattern "${{ matrix.state }}_*.Rdata" \
             --dir ./tmp-download
 

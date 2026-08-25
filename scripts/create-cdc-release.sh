@@ -12,7 +12,7 @@ set -e
 
 RELEASE_TAG="cdc-testing-v1.0.0"
 RELEASE_TITLE="CDC Testing Simulations v1.0.0"
-REPO="ncsizemore/jheem-simulations"
+REPO="CIPHER-Epi/jheem-simulations"
 SIM_DIR="/mnt/jheem_nas_share/simulations/cdct/final.ehe.state-1000"
 
 # CDC Testing 18 states (matching Shiny app)
