@@ -4,6 +4,11 @@ on:
   pull_request:
     paths:
       - .github/config/models.json
+      - .github/config/calibration-promotion.json
+      - .github/workflows/promote-calibration.yml
+      - scripts/promote-calibration.mjs
+      - scripts/calibration-promotion.mjs
+      - scripts/test-calibration-promotion.mjs
       - .github/workflows/run-custom-sim.yml
       - .github/workflows/_generate-data-template.yml
       - package-lock.json
@@ -17,6 +22,11 @@ on:
     branches: [master]
     paths:
       - .github/config/models.json
+      - .github/config/calibration-promotion.json
+      - .github/workflows/promote-calibration.yml
+      - scripts/promote-calibration.mjs
+      - scripts/calibration-promotion.mjs
+      - scripts/test-calibration-promotion.mjs
       - .github/workflows/run-custom-sim.yml
       - .github/workflows/_generate-data-template.yml
       - package-lock.json
@@ -41,3 +51,23 @@ jobs:
           node-version: "24"
       - run: npm test
       - run: npm run audit:production
+      - name: Read calibration consumer pin
+        id: calibration
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const pin = JSON.parse(fs.readFileSync(".github/config/calibration-promotion.json"));
+            if (!/^[a-f0-9]{40}$/.test(pin.consumer_commit)) throw new Error("Invalid consumer pin");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${pin.consumer_commit}\nrepository=${pin.consumer_repository}\n`);
+          '
+      - name: Check out pinned calibration consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.calibration.outputs.repository }}
+          ref: ${{ steps.calibration.outputs.commit }}
+          path: consumer
+          persist-credentials: false
+      - name: Preview real calibration release without AWS credentials
+        env:
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/promote-calibration.mjs --consumer consumer --output delivery --mode plan

@@ -1,0 +1,81 @@
+name: Promote calibration release
+run-name: Calibration delivery (${{ inputs.mode }})
+
+on:
+  workflow_dispatch:
+    inputs:
+      mode:
+        description: Preview files and sizes, or publish the pinned release
+        type: choice
+        options: [plan, promote]
+        default: plan
+        required: true
+
+permissions:
+  contents: read
+
+concurrency:
+  group: calibration-delivery
+  cancel-in-progress: false
+
+jobs:
+  deliver:
+    if: github.ref == 'refs/heads/master'
+    runs-on: ubuntu-latest
+    timeout-minutes: 20
+    steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          persist-credentials: false
+      - uses: actions/setup-node@820762786026740c76f36085b0efc47a31fe5020 # v7.0.0
+        with:
+          node-version: "24"
+      - name: Read reviewed consumer pin
+        id: pin
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            const pin = JSON.parse(fs.readFileSync(".github/config/calibration-promotion.json"));
+            if (!/^[a-f0-9]{40}$/.test(pin.consumer_commit)) throw new Error("Invalid consumer pin");
+            fs.appendFileSync(process.env.GITHUB_OUTPUT, `commit=${pin.consumer_commit}\nrepository=${pin.consumer_repository}\n`);
+          '
+      - name: Check out immutable release consumer
+        uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          repository: ${{ steps.pin.outputs.repository }}
+          ref: ${{ steps.pin.outputs.commit }}
+          path: consumer
+          persist-credentials: false
+      - name: Configure existing AWS publisher
+        if: inputs.mode == 'promote'
+        uses: aws-actions/configure-aws-credentials@e6de054238d6b7531b4efff3b6587d9aade6a06c # v6.2.3
+        with:
+          aws-access-key-id: ${{ secrets.AWS_ACCESS_KEY_ID }}
+          aws-secret-access-key: ${{ secrets.AWS_SECRET_ACCESS_KEY }}
+          aws-region: us-east-1
+      - name: Verify release and execute selected mode
+        env:
+          PROMOTION_MODE: ${{ inputs.mode }}
+          GITHUB_TOKEN: ${{ github.token }}
+        run: node scripts/promote-calibration.mjs --consumer consumer --output delivery --mode "$PROMOTION_MODE"
+      - name: Record delivery summary
+        if: always()
+        run: |
+          node -e '
+            const fs = require("node:fs");
+            if (!fs.existsSync("delivery/plan.json")) process.exit(0);
+            const plan = JSON.parse(fs.readFileSync("delivery/plan.json"));
+            delete plan.files;
+            fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "## Calibration delivery plan\n\n```json\n" + JSON.stringify(plan, null, 2) + "\n```\n");
+            if (fs.existsSync("delivery/result.json")) fs.appendFileSync(process.env.GITHUB_STEP_SUMMARY, "\nCompleted: " + fs.readFileSync("delivery/result.json", "utf8"));
+          '
+      - name: Retain small plan and completion receipt
+        if: always()
+        uses: actions/upload-artifact@043fb46d1a93c77aae656e7c1c64a875d1fc6a0a # v7.0.1
+        with:
+          name: calibration-delivery-receipt
+          path: |
+            delivery/plan.json
+            delivery/result.json
+          retention-days: 14
+          if-no-files-found: ignore

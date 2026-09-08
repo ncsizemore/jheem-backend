@@ -4,7 +4,7 @@
   "main": "index.js",
   "scripts": {
     "audit:production": "npm audit --omit=dev --audit-level=high",
-    "test": "node scripts/validate.mjs"
+    "test": "node scripts/validate.mjs && node --test scripts/test-calibration-promotion.mjs"
   },
   "keywords": [],
   "author": "",

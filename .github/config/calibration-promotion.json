@@ -1,0 +1,12 @@
+{
+  "consumer_repository": "ncsizemore/jheem-portal",
+  "consumer_commit": "c0f50916e3d85bf045d440f189bec481235c3fad",
+  "release": "ryan-white-calibration-v1.0.0",
+  "index_sha256": "0f6edcbba221656c58eef1542b033e4b3b621adcf5bf36e5ff39d98c192bb20e",
+  "bucket": "jheem-data-production",
+  "prefix": "portal/calibration/ryan-white-calibration-v1.0.0",
+  "delivery_url": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0",
+  "browser_origin": "https://jheem.org",
+  "expected_files": 158,
+  "expected_bytes": 89689757
+}
