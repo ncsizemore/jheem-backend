@@ -15,6 +15,9 @@ on:
       - package.json
       - scripts/validate.mjs
       - scripts/validate-model-config.mjs
+      - scripts/calibration-bindings.mjs
+      - scripts/validate-calibration-config.mjs
+      - scripts/test-calibration-bindings.mjs
       - scripts/validate-workflow-actions.mjs
       - .github/workflows/validate-model-config.yml
       - '.github/workflows/generate-*.yml'
@@ -33,6 +36,9 @@ on:
       - package.json
       - scripts/validate.mjs
       - scripts/validate-model-config.mjs
+      - scripts/calibration-bindings.mjs
+      - scripts/validate-calibration-config.mjs
+      - scripts/test-calibration-bindings.mjs
       - scripts/validate-workflow-actions.mjs
       - .github/workflows/validate-model-config.yml
       - '.github/workflows/generate-*.yml'
@@ -71,3 +77,5 @@ jobs:
         env:
           GITHUB_TOKEN: ${{ github.token }}
         run: node scripts/promote-calibration.mjs --consumer consumer --output delivery --mode plan
+      - name: Verify model bindings against release and CloudFront
+        run: node scripts/validate-calibration-config.mjs --artifacts delivery/static --delivery
