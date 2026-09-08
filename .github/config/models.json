@@ -1,9 +1,9 @@
 {
   "$schema": "./models.schema.json",
   "_meta": {
-    "version": "1.2.0",
+    "version": "1.3.0",
     "description": "Source of truth for JHEEM application/runtime/product model configuration. Used by GitHub Actions workflows and jheem-portal. Container build/test/provenance metadata belongs in jheem-containers.",
-    "lastUpdated": "2026-07-30",
+    "lastUpdated": "2026-09-07",
     "syncNote": "When updating container.version or dataSource.release, also update the corresponding defaults in .github/workflows/generate-*.yml (GitHub Actions cannot derive defaults from JSON at runtime)."
   },
 
@@ -115,6 +115,15 @@
       "s3Path": "portal/ryan-white",
       "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white",
       "summaryFile": "city-summaries.json"
+    },
+
+    "calibration": {
+      "release": "ryan-white-calibration-v1.0.0",
+      "manifestUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-msa/manifest.json",
+      "manifestSha256": "2237522394270084ff973e00d408786694be80708c9d3e80a9b664fc6b1b7386",
+      "locationIndexUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-msa/locations.json",
+      "locationIndexSha256": "da93a0d8235861b8bbfd1267b399fdc0a1c08b7dca8be6bc1bc622f4f54315d1",
+      "displayFacets": ["total", "age"]
     },
 
     "defaults": {
@@ -266,6 +275,15 @@
       "s3Path": "portal/ryan-white-state",
       "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white-state",
       "summaryFile": "state-summaries.json"
+    },
+
+    "calibration": {
+      "release": "ryan-white-calibration-v1.0.0",
+      "manifestUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-ajph/manifest.json",
+      "manifestSha256": "f99a54fa64bece1bc044dbac9666f4d9bfa99c7bada8421a9bae386e760233c7",
+      "locationIndexUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-ajph/locations.json",
+      "locationIndexSha256": "a031450c6784eeb07c1eb55d43d99a112e12d783ab0d37e6b9b8e2e640484ec8",
+      "displayFacets": ["total", "age"]
     },
 
     "defaults": {
@@ -432,6 +450,15 @@
       "s3Path": "portal/ryan-white-state-croi",
       "cloudfrontUrl": "https://d320iym4dtm9lj.cloudfront.net/ryan-white-state-croi",
       "summaryFile": "state-summaries.json"
+    },
+
+    "calibration": {
+      "release": "ryan-white-calibration-v1.0.0",
+      "manifestUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-croi/manifest.json",
+      "manifestSha256": "f2e0e78615ca686a20d280b3e63e859473bc98e50ec7882cb8cfe91a1c431f71",
+      "locationIndexUrl": "https://d320iym4dtm9lj.cloudfront.net/calibration/ryan-white-calibration-v1.0.0/ryan-white-croi/locations.json",
+      "locationIndexSha256": "9117de130d100f0077a1efe403265f425205f4d595a722684af9d909f4eb1b29",
+      "displayFacets": ["total", "age"]
     },
 
     "defaults": {
